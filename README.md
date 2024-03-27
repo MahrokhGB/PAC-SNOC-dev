@@ -16,9 +16,9 @@ python setup.py install
 
 ### Robots
 
-The following gifs show trajectories of the 2 robots before training (left), and after the training of the empirical controller (middle),
+The following gifs show the trajectories of the 2 robots before training (left), and after the training of the empirical controller (middle),
 and using our approach (right).
-The agents that need to coordinate in order to pass through a narrow passage while avoiding collisions between them.
+The agents need to coordinate in order to pass through a narrow passage while avoiding collisions between them.
 The initial conditions used as training data are marked with &#9675;, 
 consisting of `s = 30` samples.
 The shown trajectories start from a random initial position sampled from the test data and marked with
@@ -52,7 +52,7 @@ python experiments/scalar/run_empirical.py
 ```bash
 python experiments/scalar/run_benchmark.py
 ```
-4. Train the controllers using our appoach by running
+4. Train the controllers using our approach by running
 ```bash
 python experiments/scalar/run_grid_Gibbs.py
 ```
@@ -67,7 +67,7 @@ python experiments/robotsX/generate_data.py
 ```bash
 python experiments/robotsX/run_emp.py
 ```
-3. Train the controllers using our appoach by running
+3. Train the controllers using our approach by running
 ```bash
 python experiments/robotsX/run_SVGD.py
 ```
@@ -91,5 +91,5 @@ This work is licensed under a
 
 
 ## References
-[[1]](https://arxiv.org/pdf/????.?????.pdf) Mahrokh Ghoddousi Boroujeni, Clara Galimberti, Andreas Krause, Giancarlo
+[[1]](https://arxiv.org/pdf/2403.17790.pdf) Mahrokh Ghoddousi Boroujeni, Clara Galimberti, Andreas Krause, Giancarlo
 Ferrari-Trecate. "A PAC-Bayesian Framework for Optimal Control with Stability Guarantees," 2024.
