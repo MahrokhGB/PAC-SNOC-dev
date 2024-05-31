@@ -8,6 +8,7 @@ from assistive_functions import WrapLogger
 from loss_functions import LQLossFH
 from controllers.empirical_controller import *
 from experiments.scalar.LTI_sys import LTI_system
+from experiments.scalar.scalar_assistive_functions import load_data
 
 random_seed = 33
 random_state = np.random.RandomState(random_seed)
@@ -17,26 +18,11 @@ logger = WrapLogger(None)
 # ------ 1. load data ------
 T = 10
 dist_type = 'N biased'
-
-file_path = os.path.join(BASE_DIR, 'experiments', 'scalar', 'saved_results')
-filename = dist_type.replace(" ", "_")+'_data_T'+str(T)+'_RS'+str(random_seed)+'.pkl'
-filename = os.path.join(file_path, filename)
-if not os.path.isfile(filename):
-    print(filename + " does not exists.")
-    print("Need to generate data!")
-assert os.path.isfile(filename)
-filehandler = open(filename, 'rb')
-data_all = pickle.load(filehandler)
-filehandler.close()
-# divide
-S_test = None   # use a subset of available test data if not None
-data_train = data_all['train_big'][dist_type]                   # use all data for benchmark
-if not S_test is None:
-    data_test = data_all['test_big'][dist_type][:S_test, :, :]
-else:
-    data_test = data_all['test_big'][dist_type]
-# disturbance
-disturbance = data_all['disturbance']
+S = None# use all training data
+data_train, data_test, disturbance = load_data(
+    dist_type=dist_type, S=S, T=T, random_seed=random_seed,
+    S_test=None   # use a subset of available test data if not None
+)
 
 # ------ 2. define the plant ------
 sys_np = LTI_system(

@@ -1,4 +1,5 @@
-import copy, torch, sys, os
+import numpy as np
+import torch, sys, os
 from collections import OrderedDict
 from pyro.distributions import Normal, Uniform
 from torch.distributions import Distribution
@@ -7,7 +8,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(1, BASE_DIR)
 
 from config import device
-from controllers.abstract import CLSystem
+from controllers.abstract import CLSystem, affine_controller
 from assistive_functions import to_tensor, WrapLogger
 from controllers.vectorized_controller import ControllerVectorized
 from controllers.REN_controller import RENController
@@ -33,7 +34,7 @@ class GibbsPosterior():
         self.logger = WrapLogger(logger)
         # define a generic controller
         if controller_type == 'NN':
-            assert not (layer_sizes is None or nonlinearity_hidden is None or nonlinearity_output is None)
+            assert not layer_sizes is None
             generic_controller = ControllerVectorized(
                 num_states=sys.num_states, num_inputs=sys.num_inputs,
                 layer_sizes=layer_sizes,
@@ -50,6 +51,10 @@ class GibbsPosterior():
                 n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
                 train_method='SVGD', initialization_std=initialization_std
             )
+        elif controller_type=='Affine':
+            generic_controller = affine_controller(
+                np.zeros((1, sys.num_states)), np.zeros((1, sys.num_inputs))
+            )
         else:
             raise NotImplementedError
         # Define a CL system with the given plant and a placeholder for the controller.
@@ -60,8 +65,16 @@ class GibbsPosterior():
         self._param_dists = OrderedDict()
         # ------- set prior -------
         if not 'type' in prior_dict.keys():
-            self.logger.info('[WARNING]: prior type not provided. Using Gaussian.')
-            prior_dict['type'] = 'Gaussian'
+            if 'type_b' in prior_dict.keys():
+                if prior_dict['type_b'].startswith('Gaussian'):
+                    prior_dict['type']='Gaussian'
+                elif prior_dict['type_b'].startswith('Uniform'):
+                    prior_dict['type']='Uniform'
+                else:
+                    raise NotImplementedError
+            else:
+                self.logger.info('[WARNING]: prior type not provided. Using Gaussian.')
+                prior_dict['type'] = 'Gaussian'
         # --- set prior for NN controller ---
         if isinstance(self.generic_cl_system.controller, ControllerVectorized):
             for name, shape in self.generic_cl_system.controller.parameter_shapes().items():

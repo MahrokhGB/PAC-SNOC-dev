@@ -9,6 +9,7 @@ from experiments.scalar.loss_functions import LQLossFH
 from controllers.abstract import affine_controller
 from SVGD_src.approx_upperbound import approx_upper_bound
 from experiments.scalar.LTI_sys import LTI_system
+from experiments.scalar.scalar_assistive_functions import load_data, compute_posterior_by_gridding
 
 
 random_seed = 33
@@ -18,35 +19,21 @@ logger = WrapLogger(None)
 # IMPORTANT CHOICES
 epsilon = 0.2         # PAC holds with Pr >= 1-epsilon
 prior_type_b = 'Gaussian_biased_wide'
-S = 8
 n_grid = 65
 num_sampled_controllers = 20
-print(epsilon, prior_type_b, S)
+
 
 # ****** PART 1: GENERAL ******
 # ------ 1. load data ------
 T = 10
+S = 8
 dist_type = 'N biased'
+data_train, data_test, disturbance = load_data(
+    dist_type=dist_type, S=S, T=T, random_seed=random_seed,
+    S_test=None   # use a subset of available test data if not None
+)
 
-file_path = os.path.join(BASE_DIR, 'experiments', 'scalar', 'saved_results')
-filename = dist_type.replace(" ", "_")+'_data_T'+str(T)+'_RS'+str(random_seed)+'.pkl'
-filename = os.path.join(file_path, filename)
-if not os.path.isfile(filename):
-    print(filename + " does not exists.")
-    print("Need to generate data!")
-assert os.path.isfile(filename)
-filehandler = open(filename, 'rb')
-data_all = pickle.load(filehandler)
-filehandler.close()
-# divide
-S_test = None   # use a subset of available test data if not None
-data_train = data_all['train_big'][dist_type][:S, :, :]
-if not S_test is None:
-    data_test = data_all['test_big'][dist_type][:S_test, :, :]
-else:
-    data_test = data_all['test_big'][dist_type]
-# disturbance
-disturbance = data_all['disturbance']
+print(epsilon, prior_type_b, S)
 
 # ------ 2. define the plant ------
 sys_np = LTI_system(
@@ -76,6 +63,7 @@ lq_loss_original = LQLossFH(Q, R, T, None, None, logger=logger)
 # ------ 4. Gibbs temperature ------
 gibbs_lambda_star = (8 * S * math.log(1/epsilon))**0.5        # lambda for Gibbs
 gibbs_lambda = gibbs_lambda_star
+
 
 # ****** PART 2: PRIOR ******
 
@@ -147,126 +135,14 @@ elif prior_type_b == 'Gaussian_biased_narrow':
     })
 
 # ****** PART 3: POSTERIOR ******
-
 logger.info('[INFO] calculating the posterior.')
-# ------ grid ------
-if prior_type_w == 'Uniform':
-    theta_grid = np.linspace(
-        prior_dict['weight_low'], prior_dict['weight_high'], n_grid
-    )
-elif prior_type_w == 'Gaussian':
-    theta_grid = np.linspace(
-        prior_dict['weight_loc']-2,
-        prior_dict['weight_loc']+2,
-        n_grid
-    )
-else:
-    raise NotImplementedError
+res_dict = compute_posterior_by_gridding(
+    prior_dict=prior_dict, lq_loss_bounded=lq_loss_bounded,
+    data_train=data_train, dist_type=dist_type,
+    sys_np=sys_np, gibbs_lambda=gibbs_lambda, n_grid=n_grid
+)
 
-if prior_type_b == 'Uniform':
-    bias_grid = np.linspace(
-        prior_dict['bias_low'], prior_dict['bias_high'],
-        n_grid
-    )
-elif prior_type_b == 'Uniform_pos':
-    bias_grid = np.linspace(-5, 5, n_grid)
-    # should consider the full range, b.c. prior is on the wrong side
-elif prior_type_b == 'Uniform_neg':
-    n_grid = int((n_grid+1)/2)      # NOTE: range is half => half points. o.w., prior becomes half the full range
-    bias_grid = np.linspace(
-        prior_dict['bias_low'], prior_dict['bias_high'],
-        n_grid
-    )
-elif prior_type_b == 'Gaussian':
-    bias_grid = np.linspace(-5, 5, n_grid)
-elif prior_type_b == 'Gaussian_biased_wide':
-    bias_grid = np.linspace(-5, 5, n_grid)
-elif prior_type_b == 'Gaussian_biased':
-    n_grid = int((n_grid+1)/2)      # NOTE: range is half => half points. o.w., prior becomes half the full range
-    bias_grid = np.linspace(-5, 0, n_grid)
-else:
-    raise NotImplementedError
-theta_grid = np.flip(np.sort(theta_grid))
-bias_grid = np.flip(np.sort(bias_grid))
-
-#  ------ prior ------
-if prior_type_w == 'Uniform':
-    prior_w = 1/len(theta_grid)*np.ones(len(theta_grid))
-elif prior_type_w == 'Gaussian':
-    mean = prior_dict['weight_loc']
-    sigma = prior_dict['weight_scale']
-    prior_w = 1/(sigma*np.sqrt(2*np.pi)) * np.exp(-(theta_grid-mean)**2/(2*sigma**2))
-    prior_w = prior_w * abs(theta_grid[-1]-theta_grid[0])/len(theta_grid)
-    prior_w = prior_w.flatten()
-    # NOTE: convert continuous pdf to discrete histogram
-    assert sum(prior_w) <= 1+1e-5, sum(prior_w)
-else:
-    raise NotImplementedError
-if prior_type_b in ['Uniform', 'Uniform_neg']:
-    prior_b = 1/len(bias_grid)*np.ones(len(bias_grid))
-elif prior_type_b == 'Uniform_pos':
-    prior_b = np.concatenate((
-        np.zeros(int((len(bias_grid)-1)/2)),
-        np.ones(int((len(bias_grid)+1)/2))
-    ))/int((len(bias_grid)+1)/2)
-elif prior_type_b.startswith('Gaussian'):
-    mean = prior_dict['bias_loc']
-    sigma = prior_dict['bias_scale']
-    prior_b = 1/(sigma*np.sqrt(2*np.pi)) * np.exp(-(bias_grid-mean)**2/(2*sigma**2))
-    prior_b = prior_b * abs(bias_grid[-1]-bias_grid[0])/len(bias_grid)
-    prior_b = prior_b.flatten()
-    # NOTE: convert continuous pdf to discrete histogram
-    assert sum(prior_b) <= 1+1e-5, sum(prior_b)
-else:
-    raise NotImplementedError
-
-# ------ init ------
-num_rows = len(theta_grid)*len(bias_grid)
-res_dict = {
-    # general info
-    'num_rollouts':S, 'T':T, 'dist_type':dist_type,
-    'prior_type_b':prior_type_b,
-    # distributions
-    'theta':[None]*num_rows, 'bias':[None]*num_rows,
-    'prior':[a[0]*a[1] for a in itertools.product(prior_w, prior_b)],
-    'posterior':[None]*num_rows,
-    # evaluation
-    'ub':None,
-    'av_test_loss_bounded':None, 'av_test_loss_original':None,
-}
-
-# NOTE: don't divide prior by sum. grid may contain part of the prior
-assert len(res_dict['prior'])==num_rows
-# assert sum(res_dict['prior'])>=0.85, 'considerbale mass of the prior falls outside the grid. reduce std or enlarge the grid.'
-
-# ------ posterior ------
-for ind, (theta_tmp, bias_tmp) in enumerate(
-    itertools.product(theta_grid, bias_grid)
-):
-    res_dict['theta'][ind] = theta_tmp
-    res_dict['bias'][ind] = bias_tmp
-    # define controller
-    c_tmp = affine_controller(
-        np.array([[theta_tmp]]), np.array([[bias_tmp]])
-    )
-    # roll
-    x_tmp, y_tmp, u_tmp = sys_np.multi_rollout(
-        c_tmp, data_train
-    )
-    # apply controller on train data
-    train_loss_bounded = lq_loss_bounded.forward(x_tmp, u_tmp).item()
-    # compute posterior unnormalized
-    res_dict['posterior'][ind] = res_dict['prior'][ind] * math.exp(
-        -gibbs_lambda * train_loss_bounded
-    )
-# NOTE: normalize
-sum_posterior = sum(res_dict['posterior'])
-res_dict['posterior'] = [
-    x/sum_posterior for x in res_dict['posterior']
-]
-approximated_Z = sum_posterior
-
-# sample
+# sample from the posterior
 sampled_inds = random_state.choice(
     range(len(res_dict['posterior'])),
     size=num_sampled_controllers,
@@ -307,7 +183,7 @@ ub = approx_upper_bound(
     grid_dict=grid_dict, sys=sys,
     lq_loss=lq_loss_bounded, data=to_tensor(data_train),
     lambda_=to_tensor(gibbs_lambda), epsilon=epsilon,
-    loss_bound=loss_bound, approximated_Z=approximated_Z
+    loss_bound=loss_bound, approximated_Z=res_dict['approximated_Z']
 )
 logger.info('Theoretical upper bound = {:1.4f}'.format(ub.item()))
 if not loss_bound == 1:
@@ -318,9 +194,7 @@ res_dict['ub'] = ub
 
 
 # save
-res_dict['theta_grid'] = theta_grid
-res_dict['bias_grid'] = bias_grid
-res_dict['approximated_Z'] = approximated_Z
+file_path = os.path.join(BASE_DIR, 'experiments', 'scalar', 'saved_results')
 res_dict['sampled_controllers'] = sampled_controllers
 filename = dist_type.replace(" ", "_")+'_ours_'+prior_type_b+'_T'+str(T)+'_S'+str(S)+'_eps'+str(int(epsilon*10))+'.pkl'
 filename = os.path.join(file_path, filename)
