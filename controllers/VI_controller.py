@@ -17,6 +17,8 @@ class VICont():
         layer_sizes=None, nonlinearity_hidden=None, nonlinearity_output=None,
         # REN controller properties
         n_xi=None, l=None, x_init=None, u_init=None,
+        # debug
+        debug=False, mu_debug=5, var_debug=0.5,
     ):
         """
         train_d: (ndarray) train disturbances - shape: (S, T, sys.num_states)
@@ -47,6 +49,13 @@ class VICont():
         self.fitted, self.over_fitted = False, False
         self.unknown_err = False
         self.logger = WrapLogger(logger)
+
+        self.debug = debug
+        if self.debug:
+            self.logger.info(
+                '[INFO] Debug mode. Posteior is N('+str(mu_debug)+', '+str(var_debug)+'), not Gibbs.'
+            )
+            self.mu_debug, self.var_debug = mu_debug, var_debug
 
         """ --- Setup model & inference --- """
         self._setup_model_inference(
@@ -92,15 +101,15 @@ class VICont():
             # --- take a step ---
             self.optimizer.zero_grad()
 
-            try:
-                loss = self.get_neg_elbo(task_dict_batch)
-                loss.backward()
-                self.optimizer.step()
-                self.lr_scheduler.step()
-            except Exception as e:
-                self.logger.info('[Unhandled ERR] in VI step: ' + type(e).__name__ + '\n')
-                self.logger.info(e)
-                self.unknown_err = True
+            # try:
+            loss = self.get_neg_elbo(task_dict_batch)
+            loss.backward()
+            self.optimizer.step()
+            self.lr_scheduler.step()
+            # except Exception as e:
+            #     self.logger.info('[Unhandled ERR] in VI step: ' + type(e).__name__ + '\n')
+            #     self.logger.info(e)
+            #     self.unknown_err = True
 
             # add loss to history
             loss_history = loss_history[1:]     # drop oldest
@@ -120,16 +129,16 @@ class VICont():
                 )
                 # log info
                 self.logger.info(message)
-                print('Current dists: weight N({:.2f}, {:.2f}), bias N({:.2f}, {:.2f})'.format(
-                    self.var_post.loc.detach().numpy()[1], np.exp(self.var_post.scale_raw.detach().numpy()[1]),
-                    self.var_post.loc.detach().numpy()[0], np.exp(self.var_post.scale_raw.detach().numpy()[0])
-                ))
-                print('Average dists: weight N({:.2f}, {:.2f}), bias N({:.2f}, {:.2f})'.format(
-                    sum([v[0] for v in vf_history])/log_period,
-                    np.exp(sum([v[1] for v in vf_history])/log_period),
-                    sum([v[2] for v in vf_history])/log_period,
-                    np.exp(sum([v[3] for v in vf_history])/log_period)
-                ))
+                # print('Current dists: weight N({:.2f}, {:.2f}), bias N({:.2f}, {:.2f})'.format(
+                #     self.var_post.loc.detach().numpy()[1], np.exp(self.var_post.scale_raw.detach().numpy()[1]),
+                #     self.var_post.loc.detach().numpy()[0], np.exp(self.var_post.scale_raw.detach().numpy()[0])
+                # ))
+                # print('Average dists: weight N({:.2f}, {:.2f}), bias N({:.2f}, {:.2f})'.format(
+                #     sum([v[0] for v in vf_history])/log_period,
+                #     np.exp(sum([v[1] for v in vf_history])/log_period),
+                #     sum([v[2] for v in vf_history])/log_period,
+                #     np.exp(sum([v[3] for v in vf_history])/log_period)
+                # ))
 
                 # log learning rate
                 # message += ', LR: '+str(self.lr_scheduler.get_last_lr())
@@ -138,7 +147,7 @@ class VICont():
                 if sum(loss_history)/log_period < min_criterion:
                     min_criterion = sum(loss_history)/log_period
                     self.best_vfs = copy.deepcopy(self.var_post)
-                    print('updated best variational factors.')
+                    self.logger.info('updated best variational factors.')
 
 
             # # go one iter back if non-psd
@@ -177,11 +186,20 @@ class VICont():
     # -- negative ELBO loss ---
     # -------------------------
     def get_neg_elbo(self, tasks_dicts):
-        # tile data to number or VFs
-        # data_tuples_tiled = _tile_data_tuples(tasks_dicts, self.num_vfs)
-        data_tuples_tiled = tasks_dicts #TODO: use the above line
         param_sample = self.var_post.rsample(sample_shape=(self.num_vfs,))
-        elbo = self.generic_Gibbs.log_prob(param_sample, data_tuples_tiled) - self.var_post.log_prob(param_sample)
+        if self.debug:
+            if self.num_vfs>1:
+                raise NotImplementedError
+            log_prob_normal_debug = -0.5/self.var_debug * torch.matmul(
+                param_sample-self.mu_debug,
+                torch.transpose(param_sample-self.mu_debug, 0, 1)
+            )
+            elbo = log_prob_normal_debug - self.var_post.log_prob(param_sample)
+        else:
+            # tile data to number or VFs
+            # data_tuples_tiled = _tile_data_tuples(tasks_dicts, self.num_vfs)
+            data_tuples_tiled = tasks_dicts #TODO: use the above line
+            elbo = self.generic_Gibbs.log_prob(param_sample, data_tuples_tiled) - self.var_post.log_prob(param_sample)
         elbo = elbo.reshape(self.num_vfs)
         assert elbo.ndim == 1 and elbo.shape[0] == self.num_vfs
         return - torch.mean(elbo)
@@ -347,7 +365,14 @@ class GaussVarPosterior(torch.nn.Module):
             scale_raw = []
             for name, shape in named_param_shapes.items():
                 loc.append(vf_param_dists[name]['mean'])
-                scale_raw.append(math.log(math.sqrt(vf_param_dists[name]['variance'])))
+                if 'variance' in vf_param_dists[name].keys():
+                    scale_raw.append(math.log(math.sqrt(vf_param_dists[name]['variance'])))
+                elif 'scale' in vf_param_dists[name].keys():
+                    scale_raw.append(math.log(vf_param_dists[name]['scale']))
+                elif 'scale_raw' in vf_param_dists[name].keys():
+                    scale_raw.append(vf_param_dists[name]['scale_raw'])
+                else:
+                    raise NotImplementedError
             self.loc = torch.nn.Parameter(torch.tensor(loc).float().to(device))
             if vf_cov_type == 'diag':
                 self.scale_raw = torch.nn.Parameter(torch.tensor(scale_raw).float().to(device))
