@@ -42,6 +42,7 @@ else:
     filename_log = fname + '_log'
 filename_log = os.path.join(file_path, filename_log)
 
+# logger
 logging.basicConfig(filename=filename_log, format='%(asctime)s %(message)s', filemode='w')
 logger = logging.getLogger('bnn')
 logger.setLevel(logging.DEBUG)
@@ -125,7 +126,7 @@ for name in training_param_names:
 num_particles = 10
 batch_size = 5
 lr = 1e-2
-epochs = 500
+epochs = 5000
 log_period = 50
 early_stopping = True
 n_xi = 8       # size of the linear part of REN
@@ -198,44 +199,19 @@ res_dict = {
     'alpha_ca':alpha_ca, 'alpha_obst':alpha_obst,
     'n_xi':n_xi, 'l':l, 'initialization_std':initialization_std
 }
+# save file name
 if fname is not None:
-    filename = fname+'_'+str(num_particles)+'particles.pt'
+    filename_save = fname+'_'+str(num_particles)+'particles.pt'
 else:
-    filename = exp_name+'_SVGD_'+str(num_particles)+'particles_T'+str(t_end)+'_S'+str(num_rollouts)
-    filename += '_stdini'+str(std_ini)+'_agents'+str(n_agents)+'_RS'+str(random_seed)+'.pt'
+    filename_save = exp_name+'_SVGD_'+str(num_particles)+'particles_T'+str(t_end)+'_S'+str(num_rollouts)
+    filename_save += '_stdini'+str(std_ini)+'_agents'+str(n_agents)+'_RS'+str(random_seed)+'.pt'
 file_path = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results', 'trained_models')
 path_exist = os.path.exists(file_path)
 if not path_exist:
     os.makedirs(file_path)
-filename = os.path.join(file_path, filename)
-torch.save(res_dict, filename)
+filename_save = os.path.join(file_path, filename_save)
+torch.save(res_dict, filename_save)
 logger.info('model saved.')
-
-# for particle_num in range(num_particles):
-#     # get particle
-#     particle = svgd_cont.particles[particle_num, :].detach().clone()
-#     # set initial particle as controller params
-#     ctl_generic.reset()
-#     ctl_generic.set_parameters_as_vector(particle)
-#     # save this particle
-#     res_dict = ctl_generic.psi_u.named_parameters()
-#     res_dict['num_rollouts'] = num_rollouts
-#     res_dict['Q'], res_dict['alpha_u'] = Q, alpha_u
-#     res_dict['alpha_ca'], res_dict['alpha_obst'] = alpha_ca, alpha_obst
-#     res_dict['n_xi'], res_dict['l'] = n_xi, l
-#     res_dict['initialization_std'] = initialization_std
-#     if fname is not None:
-#         filename = fname+'_particle'+str(particle_num)+'.pt'
-#     else:
-#         filename = exp_name+'_SVGDparticle'+str(particle_num)+'_T'+str(t_end)+'_S'+str(num_rollouts)
-#         filename += '_stdini'+str(std_ini)+'_agents'+str(n_agents)+'_RS'+str(random_seed)+'.pt'
-#     file_path = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results', 'trained_models')
-#     path_exist = os.path.exists(file_path)
-#     if not path_exist:
-#         os.makedirs(file_path)
-#     filename = os.path.join(file_path, filename)
-#     torch.save(res_dict, filename)
-#     logger.info('model saved.')
 
 # eval on train data
 bounded_train_loss = svgd_cont.eval_rollouts(train_data)
