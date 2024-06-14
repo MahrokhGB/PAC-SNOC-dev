@@ -12,7 +12,7 @@ class VICont():
         random_seed=None, optimizer='Adam', batch_size=-1, lambda_=None,
         num_iter_fit=None, lr_decay=1.0, logger=None,
         # VI properties
-        num_vfs=10, vf_init_std=0.1, vf_cov_type='diag', vf_param_dists=None,
+        num_vfs=10, vf_init_std=0.1, vf_cov_type='diag', vf_param_dists=None, L=1,
         # NN controller properties
         layer_sizes=None, nonlinearity_hidden=None, nonlinearity_output=None,
         # REN controller properties
@@ -22,6 +22,7 @@ class VICont():
     ):
         """
         train_d: (ndarray) train disturbances - shape: (S, T, sys.num_states)
+        L: number of samples from the posterior to approximate ELBO
         """
         # --- init ---
         if random_seed is not None:
@@ -33,7 +34,6 @@ class VICont():
 
         self.train_d = to_tensor(train_d)
         self.num_iter_fit = num_iter_fit
-        self.num_vfs = num_vfs
         self.best_vfs = None
         if batch_size < 1:
             self.batch_size = self.train_d.shape[0]
@@ -67,7 +67,7 @@ class VICont():
             controller_type=controller_type,
             n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
             # VI properties
-            num_vfs=num_vfs, vf_init_std=vf_init_std,
+            num_vfs=num_vfs, vf_init_std=vf_init_std, L=L,
             vf_cov_type=vf_cov_type, vf_param_dists=vf_param_dists,
         )
 
@@ -77,13 +77,9 @@ class VICont():
     # -------- FIT --------
     def fit(self, early_stopping=True, log_period=500):
         """
-        fits the variational --------posterior
+        fits the variational posterior
 
         Args:
-            over_fit_margin: abrupt training if slope of loss over one log_period > over_fit_margin (set to None
-             to disable early stopping)
-            cont_fit_margin: continue training for more iters if slope of loss over one log_period<-cont_fit_margin
-            max_iter_fit: max iters to extend training
             early_stopping: return model at an evaluated iteration with the lowest loss
             log_period (int) number of steps after which to print stats
         """
@@ -186,7 +182,7 @@ class VICont():
     # -- negative ELBO loss ---
     # -------------------------
     def get_neg_elbo(self, tasks_dicts):
-        param_sample = self.var_post.rsample(sample_shape=(self.num_vfs,))
+        param_sample = self.var_post.rsample(sample_shape=(self.L,))
         if self.debug:
             if self.num_vfs>1:
                 raise NotImplementedError
@@ -200,8 +196,8 @@ class VICont():
             # data_tuples_tiled = _tile_data_tuples(tasks_dicts, self.num_vfs)
             data_tuples_tiled = tasks_dicts #TODO: use the above line
             elbo = self.generic_Gibbs.log_prob(param_sample, data_tuples_tiled) - self.var_post.log_prob(param_sample)
-        elbo = elbo.reshape(self.num_vfs)
-        assert elbo.ndim == 1 and elbo.shape[0] == self.num_vfs
+        elbo = elbo.reshape(self.L)
+        assert elbo.ndim == 1 and elbo.shape[0] == self.L
         return - torch.mean(elbo)
 
     # -------------------------
@@ -212,9 +208,9 @@ class VICont():
         layer_sizes, nonlinearity_hidden, nonlinearity_output,
         controller_type, n_xi, l, x_init, u_init,
         # VI properties
-        num_vfs, vf_init_std, vf_cov_type, vf_param_dists
+        num_vfs, vf_init_std, vf_cov_type, vf_param_dists, L
     ):
-
+        self.num_vfs, self.L = num_vfs, L
         """define a generic Gibbs posterior"""
         # only used to know how many parameters we have
         self.generic_Gibbs = GibbsPosterior(

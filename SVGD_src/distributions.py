@@ -155,14 +155,14 @@ class GibbsPosterior():
         lpp = self._log_prob_prior(params)
         assert not (lpl.grad_fn is None or lpp.grad_fn is None)
         '''
-        NOTE: Must return lpp -self.lambda_ * lpl.
-        To have small prior effect, lamba must be large.
-        This makes the loss too large => divided by lambda^2.
+        # NOTE: Must return lpp -self.lambda_ * lpl.
+        # To have small prior effect, lamba must be large.
+        # This makes the loss too large => divided by lambda^2.
         NOTE: To debug, remove the effect of the prior by returning -lpl
         '''
         # return - lpl
-        return 1/self.lambda_ * lpp - lpl
-        # return lpp - self.lambda_ * lpl
+        # return 1/self.lambda_ * lpp - lpl
+        return lpp - self.lambda_ * lpl
 
     def sample_params_from_prior(self, shape):
         # shape is torch.Size()
