@@ -182,6 +182,12 @@ class VICont():
     # -- negative ELBO loss ---
     # -------------------------
     def get_neg_elbo(self, tasks_dicts):
+        '''
+        notation: true dist (P), latent var (Z), observed (X), var dist (Q)
+        ELBO = E_Q [log P(X, Z) - loq q(z)]
+        P(X, Z) is the numerator of the unnormalized true posterior
+        expecation is estimated by sample mean over self.L sampled params from Q.
+        '''
         param_sample = self.var_post.rsample(sample_shape=(self.L,))
         if self.debug:
             if self.num_vfs>1:
@@ -195,7 +201,9 @@ class VICont():
             # tile data to number or VFs
             # data_tuples_tiled = _tile_data_tuples(tasks_dicts, self.num_vfs)
             data_tuples_tiled = tasks_dicts #TODO: use the above line
-            elbo = self.generic_Gibbs.log_prob(param_sample, data_tuples_tiled) - self.var_post.log_prob(param_sample)
+            log_posterior_num = self.generic_Gibbs.log_prob(param_sample, data_tuples_tiled)    # log
+            log_var_post = self.var_post.log_prob(param_sample)
+            elbo = log_posterior_num - log_var_post
         elbo = elbo.reshape(self.L)
         assert elbo.ndim == 1 and elbo.shape[0] == self.L
         return - torch.mean(elbo)

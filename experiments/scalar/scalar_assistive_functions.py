@@ -32,13 +32,12 @@ def load_data(dist_type, S, T, random_seed, S_test = None):
 
 
 # ------ COMPUTE POSTERIOR BY GRIDDING ------
-import numpy as np
-import itertools, math
+import itertools, math, torch
 from controllers.abstract import affine_controller
 
 def compute_posterior_by_gridding(
     prior_dict, lq_loss_bounded, data_train,
-    dist_type, sys_np, gibbs_lambda, n_grid
+    dist_type, sys, gibbs_lambda, n_grid
 ):
     S, T, _ = data_train.shape
 
@@ -47,11 +46,11 @@ def compute_posterior_by_gridding(
 
     # ------ grid ------
     if prior_type_w == 'Uniform':
-        theta_grid = np.linspace(
+        theta_grid = torch.linspace(
             prior_dict['weight_low'], prior_dict['weight_high'], n_grid
         )
     elif prior_type_w == 'Gaussian':
-        theta_grid = np.linspace(
+        theta_grid = torch.linspace(
             prior_dict['weight_loc']-2,
             prior_dict['weight_loc']+2,
             n_grid
@@ -60,38 +59,38 @@ def compute_posterior_by_gridding(
         raise NotImplementedError
 
     if prior_type_b == 'Uniform':
-        bias_grid = np.linspace(
+        bias_grid = torch.linspace(
             prior_dict['bias_low'], prior_dict['bias_high'],
             n_grid
         )
     elif prior_type_b == 'Uniform_pos':
-        bias_grid = np.linspace(-5, 5, n_grid)
+        bias_grid = torch.linspace(-5, 5, n_grid)
         # should consider the full range, b.c. prior is on the wrong side
     elif prior_type_b == 'Uniform_neg':
         n_grid = int((n_grid+1)/2)      # NOTE: range is half => half points. o.w., prior becomes half the full range
-        bias_grid = np.linspace(
+        bias_grid = torch.linspace(
             prior_dict['bias_low'], prior_dict['bias_high'],
             n_grid
         )
     elif prior_type_b == 'Gaussian':
-        bias_grid = np.linspace(-5, 5, n_grid)
+        bias_grid = torch.linspace(-5, 5, n_grid)
     elif prior_type_b == 'Gaussian_biased_wide':
-        bias_grid = np.linspace(-5, 5, n_grid)
+        bias_grid = torch.linspace(-5, 5, n_grid)
     elif prior_type_b == 'Gaussian_biased':
         n_grid = int((n_grid+1)/2)      # NOTE: range is half => half points. o.w., prior becomes half the full range
-        bias_grid = np.linspace(-5, 0, n_grid)
+        bias_grid = torch.linspace(-5, 0, n_grid)
     else:
         raise NotImplementedError
-    theta_grid = np.flip(np.sort(theta_grid))
-    bias_grid = np.flip(np.sort(bias_grid))
+    theta_grid, _ = torch.sort(theta_grid, descending=True)
+    bias_grid, _ = torch.sort(bias_grid, descending=True)
 
     #  ------ prior ------
     if prior_type_w == 'Uniform':
-        prior_w = 1/len(theta_grid)*np.ones(len(theta_grid))
+        prior_w = 1/len(theta_grid)*torch.ones(len(theta_grid))
     elif prior_type_w == 'Gaussian':
         mean = prior_dict['weight_loc']
         sigma = prior_dict['weight_scale']
-        prior_w = 1/(sigma*np.sqrt(2*np.pi)) * np.exp(-(theta_grid-mean)**2/(2*sigma**2))
+        prior_w = 1/sigma/(2*torch.tensor(math.pi))**0.5 * torch.exp(-(theta_grid-mean)**2/(2*sigma**2))
         prior_w = prior_w * abs(theta_grid[-1]-theta_grid[0])/len(theta_grid)
         prior_w = prior_w.flatten()
         # NOTE: convert continuous pdf to discrete histogram
@@ -99,16 +98,16 @@ def compute_posterior_by_gridding(
     else:
         raise NotImplementedError
     if prior_type_b in ['Uniform', 'Uniform_neg']:
-        prior_b = 1/len(bias_grid)*np.ones(len(bias_grid))
+        prior_b = 1/len(bias_grid)*torch.ones(len(bias_grid))
     elif prior_type_b == 'Uniform_pos':
-        prior_b = np.concatenate((
-            np.zeros(int((len(bias_grid)-1)/2)),
-            np.ones(int((len(bias_grid)+1)/2))
+        prior_b = torch.cat((
+            torch.zeros(int((len(bias_grid)-1)/2)),
+            torch.ones(int((len(bias_grid)+1)/2))
         ))/int((len(bias_grid)+1)/2)
     elif prior_type_b.startswith('Gaussian'):
         mean = prior_dict['bias_loc']
         sigma = prior_dict['bias_scale']
-        prior_b = 1/(sigma*np.sqrt(2*np.pi)) * np.exp(-(bias_grid-mean)**2/(2*sigma**2))
+        prior_b = 1/(sigma*torch.sqrt(2*torch.tensor(math.pi))) * torch.exp(-(bias_grid-mean)**2/(2*sigma**2))
         prior_b = prior_b * abs(bias_grid[-1]-bias_grid[0])/len(bias_grid)
         prior_b = prior_b.flatten()
         # NOTE: convert continuous pdf to discrete histogram
@@ -143,10 +142,10 @@ def compute_posterior_by_gridding(
         res_dict['bias'][ind] = bias_tmp
         # define controller
         c_tmp = affine_controller(
-            np.array([[theta_tmp]]), np.array([[bias_tmp]])
+            torch.tensor([[theta_tmp]]), torch.tensor([[bias_tmp]])
         )
         # roll
-        x_tmp, y_tmp, u_tmp = sys_np.multi_rollout(
+        x_tmp, _, u_tmp = sys.multi_rollout(
             c_tmp, data_train
         )
         # apply controller on train data
@@ -171,6 +170,7 @@ def compute_posterior_by_gridding(
 
 #
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
 import matplotlib as mpl
 

@@ -25,16 +25,11 @@ data_train, data_test, disturbance = load_data(
 )
 
 # ------ 2. define the plant ------
-sys_np = LTI_system(
-    A=np.array([[0.8]]),  # num_states*num_states
-    B=np.array([[0.1]]),  # num_states*num_inputs
-    C=np.array([[0.3]]),  # num_outputs*num_states
-    x_init=2*np.ones((1, 1)),  # num_states*1
-    use_tensor=False
-)
 sys = LTI_system(
-    sys_np.A, sys_np.B, sys_np.C, sys_np.x_init,
-    use_tensor=True
+    A = np.array([[0.8]]),  # num_states*num_states
+    B = np.array([[0.1]]),  # num_states*num_inputs
+    C = np.array([[0.3]]),  # num_outputs*num_states
+    x_init = 2*np.ones((1, 1)),  # num_states*1
 )
 
 # ------ 3. define the loss ------
@@ -57,7 +52,7 @@ controller_bnc = EmpCont(
     requires_bias={'hidden':False, 'out':False}  # bias is set to the true mean, not learned
 )
 controller_bnc.controller.out.bias = to_tensor(
-    -disturbance['mean']/sys_np.B[0,0]
+    -disturbance['mean']/sys.B[0,0]
 )   # set bias according to the true unknown noise distribution
 # fit
 controller_bnc.fit(num_iter_fit=25000, batch_size=batch_size_bnc, log_period=1000)

@@ -24,7 +24,6 @@ class EmpCont(CLSystem):
         super().__init__(sys, lin_controller, random_seed)
         (self.S, self.T, num_states) = train_d.shape
         assert num_states == self.sys.num_states
-        assert self.sys.use_tensor, "the system should be defined to use tensors"
 
         # --- convert the data into pytorch tensors ---
         self.train_d = to_tensor(train_d)

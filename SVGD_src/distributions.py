@@ -141,18 +141,42 @@ class GibbsPosterior():
         self.prior = CatDist(self._param_dists.values())
 
     def _log_prob_likelihood(self, params, train_data):
-        # set params to controller
-        cl_system = self.generic_cl_system
-        cl_system.controller.set_parameters_as_vector(params)
-        # rollout
-        xs, _, us = cl_system.multi_rollout(train_data)
-        # compute loss
-        loss_val = self.loss_fn.forward(xs, us)
+        assert len(params.shape)<3
+        if len(params.shape)==1:
+            params = params.reshape(1, -1)
+        L = params.shape[0]
+
+        for l_tmp in range(L):
+            # set params to controller
+            cl_system = self.generic_cl_system
+            cl_system.controller.set_parameters_as_vector(
+                params[l_tmp, :].reshape(1,-1)
+            )
+            # rollout
+            xs, _, us = cl_system.multi_rollout(train_data)
+            # compute loss
+            loss_val_tmp = self.loss_fn.forward(xs, us)
+            if l_tmp==0:
+                loss_val = [loss_val_tmp]
+            else:
+                loss_val.append(loss_val_tmp)
+        loss_val = torch.cat(loss_val)
+        assert loss_val.shape[0]==L and loss_val.shape[1]==1
         return loss_val
 
     def log_prob(self, params, train_data):
+        '''
+        params is of shape (L, -1)
+        '''
+        assert len(params.shape)<3
+        if len(params.shape)==1:
+            params = params.reshape(1, -1)
+        L = params.shape[0]
+
         lpl = self._log_prob_likelihood(params, train_data)
+        lpl = lpl.reshape(L)
         lpp = self._log_prob_prior(params)
+        lpp = lpp.reshape(L)
         assert not (lpl.grad_fn is None or lpp.grad_fn is None)
         '''
         # NOTE: Must return lpp -self.lambda_ * lpl.

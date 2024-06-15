@@ -36,16 +36,11 @@ data_train, data_test, disturbance = load_data(
 print(epsilon, prior_type_b, S)
 
 # ------ 2. define the plant ------
-sys_np = LTI_system(
-    A=np.array([[0.8]]),  # num_states*num_states
-    B=np.array([[0.1]]),  # num_states*num_inputs
-    C=np.array([[0.3]]),  # num_outputs*num_states
-    x_init=2*np.ones((1, 1)),  # num_states*1
-    use_tensor=False
-)
 sys = LTI_system(
-    sys_np.A, sys_np.B, sys_np.C, sys_np.x_init,
-    use_tensor=True
+    A = np.array([[0.8]]),  # num_states*num_states
+    B = np.array([[0.1]]),  # num_states*num_inputs
+    C = np.array([[0.3]]),  # num_outputs*num_states
+    x_init = 2*np.ones((1, 1)),  # num_states*1
 )
 
 # ------ 3. define the loss ------
@@ -75,7 +70,10 @@ delta = 1.0  # 2.5
 
 # get prior center
 if prior_center == 'LQR-IH':
-    K_lqr_ih, _, _ = dlqr(sys_np.A, sys_np.B, Q.detach().cpu().numpy(), R.detach().cpu().numpy())
+    K_lqr_ih, _, _ = dlqr(
+        sys.A.detach().numpy(), sys.B.detach().numpy(),
+        Q.detach().cpu().numpy(), R.detach().cpu().numpy()
+    )
     theta_mid_grid = -K_lqr_ih
 # define different types of prior
 if prior_type_w == 'Gaussian':
@@ -118,19 +116,19 @@ elif prior_type_b == 'Uniform_pos':  # wrong prior
 elif prior_type_b == 'Gaussian_biased':
     prior_dict.update({
         'type_b':'Gaussian_biased',
-        'bias_loc':-disturbance['mean'][0]/sys_np.B[0,0],
+        'bias_loc':-disturbance['mean'][0]/sys.B[0,0],
         'bias_scale':1.0
     })
 elif prior_type_b == 'Gaussian_biased_wide':
     prior_dict.update({
         'type_b':'Gaussian_biased',
-        'bias_loc':-disturbance['mean'][0]/sys_np.B[0,0],
+        'bias_loc':-disturbance['mean'][0]/sys.B[0,0],
         'bias_scale':1.5
     })
 elif prior_type_b == 'Gaussian_biased_narrow':
     prior_dict.update({
         'type_b':'Gaussian_biased',
-        'bias_loc':-disturbance['mean'][0]/sys_np.B[0,0],
+        'bias_loc':-disturbance['mean'][0]/sys.B[0,0],
         'bias_scale':0.5
     })
 
@@ -139,7 +137,7 @@ logger.info('[INFO] calculating the posterior.')
 res_dict = compute_posterior_by_gridding(
     prior_dict=prior_dict, lq_loss_bounded=lq_loss_bounded,
     data_train=data_train, dist_type=dist_type,
-    sys_np=sys_np, gibbs_lambda=gibbs_lambda, n_grid=n_grid
+    sys=sys, gibbs_lambda=gibbs_lambda, n_grid=n_grid
 )
 
 # sample from the posterior
