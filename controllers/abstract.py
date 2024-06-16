@@ -19,19 +19,15 @@ class CLSystem(torch.nn.Module):
         self.controller=controller
 
     def multi_rollout(self, data):
+        assert len(data.shape)==3
         (S, T, num_states) = data.shape
         assert num_states==self.sys.num_states
 
-        for sample_num in range(S):
-            if self.sys.__class__.__name__=='SystemRobots':
+        if self.sys.__class__.__name__=='SystemRobots':
+            for sample_num in range(S):
                 x_tmp, y_tmp, u_tmp = self.sys.rollout(
                     controller=self.controller,
                     data=data[sample_num, :, :], train=True
-                )
-            else:
-                x_tmp, y_tmp, u_tmp = self.sys.rollout(
-                    controller=self.controller,
-                    data=data[sample_num, :, :]
                 )
             if sample_num==0:
                 xs = x_tmp.reshape(1, *x_tmp.shape)
@@ -41,7 +37,12 @@ class CLSystem(torch.nn.Module):
                 xs = torch.cat((xs, x_tmp.reshape(1, *x_tmp.shape)), 0)
                 ys = torch.cat((ys, y_tmp.reshape(1, *y_tmp.shape)), 0) if not y_tmp is None else None
                 us = torch.cat((us, u_tmp.reshape(1, *u_tmp.shape)), 0)
-
+        else:
+            xs, ys, us = self.sys.rollout(
+                controller=self.controller,
+                data=data
+            )
+        assert xs.shape==(S, T, num_states)
         return xs, ys, us
 
     def parameter_shapes(self):
@@ -63,19 +64,30 @@ class LinearController(ControllerVectorized):
 
 # ---------- CONTROLLER ----------
 # can be removed
-import numpy as np
+from assistive_functions import to_tensor
 class affine_controller:
     def __init__(self, theta, bias=None):
-        # theta.shape = (num_inputs, num_states), bias.shape=(num_inputs, 1)
-        if not (bias is None or isinstance(bias, np.ndarray)):
-            bias = np.array(bias)
-        self.theta = theta
-        self.bias = bias.reshape(theta.shape[0], 1) if bias is not None else np.zeros((theta.shape[0], 1))
-        self.num_states = theta.shape[1]
+        # theta is a tensor of shape = (num_inputs, num_states)
+        self.theta = to_tensor(theta)
+        if len(self.theta.shape)==1:
+            self.theta = self.theta.reshape(1, -1)
+        self.num_inputs, self.num_states = self.theta.shape
+        # bias is a tensor of shape=(num_inputs, 1)
+        self.bias = torch.zeros((theta.shape[0], 1)) if bias is None else to_tensor(bias)
+        if len(self.bias.shape)==1:
+            self.bias = self.bias.reshape(-1, 1)
+        assert self.bias.shape==(self.num_inputs, 1)
+
 
     def forward(self, what):
-        assert what.shape[0] == self.num_states, what.shape
-        return np.matmul(self.theta, what)+self.bias
+        # what must be of shape (batch_size, num_states, 1)
+        what = to_tensor(what)
+        if len(what.shape)==1:
+            what = what.reshape(1, -1, 1)
+        if len(what.shape)==2:
+            what = what.reshape(1, *what.shape)
+        assert what.shape[1:]==torch.Size([self.num_states, self.num_inputs]), what.shape
+        return torch.matmul(self.theta, what)+self.bias
 
     def set_vector_as_params(self, vec):
         # last element is bias, the rest is theta
