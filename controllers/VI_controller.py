@@ -112,8 +112,10 @@ class VICont():
             loss_history.append(loss.item())    # add newest
             vf_history = vf_history[1:]         # drop oldest
             vf_history.append((
-                self.var_post.loc.detach().numpy()[1], self.var_post.scale_raw.detach().numpy()[1],
-                self.var_post.loc.detach().numpy()[0], self.var_post.scale_raw.detach().numpy()[0]
+                self.var_post.loc.detach().cpu().numpy()[1],
+                self.var_post.scale_raw.detach().cpu().numpy()[1],
+                self.var_post.loc.detach().cpu().numpy()[0],
+                self.var_post.scale_raw.detach().cpu().numpy()[0]
             ))    # add newest
 
             # --- print stats ---

@@ -24,7 +24,7 @@ col_av = True
 obstacle = True
 is_linear = False
 fname = None     # set to None to be set automatically
-DEBUG = True
+DEBUG = False
 # -----------------------
 
 # ----- SET UP LOGGER -----
@@ -42,7 +42,10 @@ if fname is None:
     filename_log = exp_name+'_VI_log' + now
 else:
     filename_log = fname + '_log'
-filename_log = os.path.join(BASE_DIR, filename_log)
+filename_log = os.path.join(
+    BASE_DIR, 'experiments', 'robotsX',
+    'saved_results', 'log', filename_log
+)
 
 logging.basicConfig(filename=filename_log, format='%(asctime)s %(message)s', filemode='w')
 logger = logging.getLogger('bnn')
@@ -128,10 +131,6 @@ for name in training_param_names:
     var_prior_dict[name+'_vec'] = {
         'mean': 0, 'scale': prior_std
     }
-# prior_dict_tensor = copy.deepcopy(prior_dict)
-# for key, val in prior_dict.items():
-#     if not isinstance(val, str):
-#         prior_dict_tensor[key] = to_tensor(val)
 
 # ------ 2.5. define VI controller ------
 batch_size = 5
@@ -198,7 +197,7 @@ vi_cont.fit(
 logger.info('Training completed.')
 
 if DEBUG:
-    for name, param in vi_cont.var_post.parameters().items():
+    for name, param in vi_cont.var_post.parameters():
         print(name, param)
     quit()
 

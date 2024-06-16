@@ -29,14 +29,14 @@ class CLSystem(torch.nn.Module):
                     controller=self.controller,
                     data=data[sample_num, :, :], train=True
                 )
-            if sample_num==0:
-                xs = x_tmp.reshape(1, *x_tmp.shape)
-                ys = y_tmp.reshape(1, *y_tmp.shape) if not y_tmp is None else None
-                us = u_tmp.reshape(1, *u_tmp.shape)
-            else:
-                xs = torch.cat((xs, x_tmp.reshape(1, *x_tmp.shape)), 0)
-                ys = torch.cat((ys, y_tmp.reshape(1, *y_tmp.shape)), 0) if not y_tmp is None else None
-                us = torch.cat((us, u_tmp.reshape(1, *u_tmp.shape)), 0)
+                if sample_num==0:
+                    xs = x_tmp.reshape(1, *x_tmp.shape)
+                    ys = y_tmp.reshape(1, *y_tmp.shape) if not y_tmp is None else None
+                    us = u_tmp.reshape(1, *u_tmp.shape)
+                else:
+                    xs = torch.cat((xs, x_tmp.reshape(1, *x_tmp.shape)), 0)
+                    ys = torch.cat((ys, y_tmp.reshape(1, *y_tmp.shape)), 0) if not y_tmp is None else None
+                    us = torch.cat((us, u_tmp.reshape(1, *u_tmp.shape)), 0)
         else:
             xs, ys, us = self.sys.rollout(
                 controller=self.controller,
