@@ -94,31 +94,9 @@ class SystemRobots(torch.nn.Module):
         return x_, y
 
     # simulation
-    def multi_rollout(self, controller, data, train=False):
-        """
-        rollout REN for several rollouts of the process noise
-        """
-        return self.rollout(controller, data, train)
-        # data = to_tensor(data)
-        # assert len(data.shape) == 3
-        # num_rollouts = data.shape[0]
-        # for rollout_num in range(num_rollouts):
-        #     x_log, _, u_log = self.rollout(
-        #         controller, data=data[rollout_num, :, :], train=train
-        #     )
-        #     x_log = x_log.reshape(1, *x_log.shape)
-        #     u_log = u_log.reshape(1, *u_log.shape)
-        #     if rollout_num == 0:
-        #         xs, us = x_log, u_log
-        #     else:
-        #         xs = torch.cat((xs, x_log), 0)
-        #         us = torch.cat((us, u_log), 0)
-
-        # return xs, None, us
-
     def rollout(self, controller, data, train=False):
         """
-        rollout REN for 1 rollout of the process noise
+        rollout REN for rollouts of the process noise
         - data: sequence of disturbance samples of shape
                 (batch_size, T, num_states).
         """

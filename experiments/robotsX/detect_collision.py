@@ -101,9 +101,9 @@ if __name__ == "__main__":
 
     # Simulate trajectories for SVDG controller
     min_dist = 1.
-    x_svdg, _, u_svgd = sys.multi_rollout(ctl_svgd, train_data)
+    x_svdg, _, u_svgd = sys.rollout(ctl_svgd, train_data)
     print('Ratio of collisions in the train set = {:.2f}'.format(percentage_collisions_multitraj(x_svdg, n_agents, min_dist)))
 
-    x_svdg, _, u_svgd = sys.multi_rollout(ctl_svgd, test_data)
+    x_svdg, _, u_svgd = sys.rollout(ctl_svgd, test_data)
     print('Ratio of collisions in the test set = {:.2f}'.format(percentage_collisions_multitraj(x_svdg, n_agents, min_dist)))
 

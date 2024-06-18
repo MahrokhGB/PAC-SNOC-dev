@@ -64,7 +64,7 @@ class EmpCont(CLSystem):
 
             # take a step
             self.optimizer.zero_grad()
-            xs, _, us = self.multi_rollout(self.train_d[inds, :])
+            xs, _, us = self.rollout(self.train_d[inds, :])
             loss = self.loss.forward(xs, us)
             loss.backward(retain_graph=True)
             self.optimizer.step()

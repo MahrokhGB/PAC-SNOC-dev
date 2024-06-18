@@ -163,7 +163,7 @@ for epoch in range(epochs):
 
     optimizer.zero_grad()
     # simulate over t_end steps
-    x_log, _, u_log = sys.multi_rollout(
+    x_log, _, u_log = sys.rollout(
         controller=ctl, data=train_data_batch, train=True,
     )
     x_log = x_log.reshape(batch_size, t_end, sys.num_states)
@@ -183,7 +183,7 @@ for epoch in range(epochs):
     if early_stopping and epoch%valid_period==0:
         # rollout the current controller on the calid data
         with torch.no_grad():
-            x_log_valid, _, u_log_valid = sys.multi_rollout(
+            x_log_valid, _, u_log_valid = sys.rollout(
                 controller=ctl, data=valid_data, train=False,
             )
             x_log_valid = x_log_valid.reshape(valid_data.shape[0], t_end, sys.num_states)
@@ -235,7 +235,7 @@ logger.info('[INFO] saved trained model as: ' + fname)
 
 logger.info('[INFO] evaluating the trained model on the entire train data.')
 with torch.no_grad():
-    x_log, _, u_log = sys.multi_rollout(
+    x_log, _, u_log = sys.rollout(
         controller=ctl, data=train_data, train=False,
     )   # use the entire train data, not a batch
     # evaluate losses
@@ -256,7 +256,7 @@ with torch.no_grad():
 logger.info('[INFO] evaluating the trained model on the test data.')
 with torch.no_grad():
     # simulate over t_end steps
-    x_log, _, u_log = sys.multi_rollout(
+    x_log, _, u_log = sys.rollout(
         controller=ctl, data=test_data, train=False,
     )
     # loss

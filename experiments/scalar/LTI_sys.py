@@ -17,25 +17,7 @@ class LTI_system:
         assert self.C.shape == (self.num_outputs, self.num_states)
         assert self.x_init.shape == (self.num_states, 1)
 
-    # # simulation
-    def multi_rollout(self, controller, data):
-        return self.rollout(controller, data)
-    #     (S, T, num_states) = data.shape
-    #     assert num_states
-    #     ys = torch.zeros(S, T, self.num_outputs)
-    #     xs = torch.zeros(S, T, self.num_states)
-    #     us = torch.zeros(S, T, self.num_inputs)
-    #     # simulate for all disturbance samples
-    #     for sample_ind in range(S):
-    #         states, resp, inputs = self.rollout(
-    #             controller,
-    #             data[sample_ind, :, :]
-    #         )
-    #         ys[sample_ind, :, :] = resp
-    #         xs[sample_ind, :, :] = states
-    #         us[sample_ind, :, :] = inputs
-    #     return xs, ys, us
-
+    # simulation
     def rollout(self, controller, data, **kwargs):
         """
         rollout with state feedback controller

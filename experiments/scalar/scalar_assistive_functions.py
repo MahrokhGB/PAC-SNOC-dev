@@ -145,7 +145,7 @@ def compute_posterior_by_gridding(
             torch.tensor([[theta_tmp]]), torch.tensor([[bias_tmp]])
         )
         # roll
-        x_tmp, _, u_tmp = sys.multi_rollout(
+        x_tmp, _, u_tmp = sys.rollout(
             c_tmp, data_train
         )
         # apply controller on train data

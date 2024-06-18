@@ -153,7 +153,7 @@ class GibbsPosterior():
                 params[l_tmp, :].reshape(1,-1)
             )
             # rollout
-            xs, _, us = cl_system.multi_rollout(train_data)
+            xs, _, us = cl_system.rollout(train_data)
             # compute loss
             loss_val_tmp = self.loss_fn.forward(xs, us)
             if l_tmp==0:

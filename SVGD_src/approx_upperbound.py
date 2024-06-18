@@ -24,7 +24,7 @@ def approx_Z(grid_dict, sys, lq_loss, data, lambda_):
             np.array([[grid_dict['bias'][ind]]])
         )
         # roll out
-        xs_train, _, us_train = sys.multi_rollout(
+        xs_train, _, us_train = sys.rollout(
             controller_tmp,
             data
         )
@@ -96,7 +96,7 @@ def approx_Z_sample_base(
             # define controller
             ctl_generic.set_vector_as_params(theta_i)
             # roll
-            x_tmp, _, u_tmp = sys.multi_rollout(ctl_generic, data_train)
+            x_tmp, _, u_tmp = sys.rollout(ctl_generic, data_train)
             # loss
             train_loss_bounded = lq_loss_bounded.forward(x_tmp, u_tmp).item()
             res += torch.exp(- lambda_ * train_loss_bounded)

@@ -260,7 +260,7 @@ class VICont():
 
     # -------------------------
 
-    # def multi_rollout(self, data):
+    # def rollout(self, data):
     #     """
     #     rollout using current VFs.
     #     Tracks grads.
@@ -276,7 +276,7 @@ class VICont():
     #         posterior_copy = self.posterior
     #         cl_system = posterior_copy.get_forward_cl_system(particle)
     #         # rollout
-    #         xs, ys, us = cl_system.multi_rollout(data)
+    #         xs, ys, us = cl_system.rollout(data)
     #         res_xs.append(xs)
     #         res_ys.append(ys)
     #         res_us.append(us)
@@ -293,7 +293,7 @@ class VICont():
     #     """
     #     with torch.no_grad():
     #         losses=[None]*self.num_particles
-    #         res_xs, _, res_us = self.multi_rollout(data)
+    #         res_xs, _, res_us = self.rollout(data)
     #         for particle_num in range(self.num_particles):
     #             if loss_fn is None:
     #                 losses[particle_num] = self.posterior.loss_fn.forward(

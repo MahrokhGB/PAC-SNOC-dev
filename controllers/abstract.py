@@ -18,7 +18,7 @@ class CLSystem(torch.nn.Module):
         self.sys=sys
         self.controller=controller
 
-    def multi_rollout(self, data):
+    def rollout(self, data):
         assert len(data.shape)==3
         (S, T, num_states) = data.shape
         assert num_states==self.sys.num_states

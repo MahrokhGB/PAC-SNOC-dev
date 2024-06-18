@@ -161,7 +161,7 @@ for c_num in range(num_sampled_controllers):
         np.array([[sc[0]]]), np.array([[sc[1]]])
     )
     # rollout
-    xs_test, ys_test, us_test = sys.multi_rollout(
+    xs_test, ys_test, us_test = sys.rollout(
         controller, data_test
     )
     # test loss
