@@ -24,25 +24,16 @@ class CLSystem(torch.nn.Module):
         assert num_states==self.sys.num_states
 
         if self.sys.__class__.__name__=='SystemRobots':
-            for sample_num in range(S):
-                x_tmp, y_tmp, u_tmp = self.sys.rollout(
-                    controller=self.controller,
-                    data=data[sample_num, :, :], train=True
-                )
-                if sample_num==0:
-                    xs = x_tmp.reshape(1, *x_tmp.shape)
-                    ys = y_tmp.reshape(1, *y_tmp.shape) if not y_tmp is None else None
-                    us = u_tmp.reshape(1, *u_tmp.shape)
-                else:
-                    xs = torch.cat((xs, x_tmp.reshape(1, *x_tmp.shape)), 0)
-                    ys = torch.cat((ys, y_tmp.reshape(1, *y_tmp.shape)), 0) if not y_tmp is None else None
-                    us = torch.cat((us, u_tmp.reshape(1, *u_tmp.shape)), 0)
+            xs, ys, us= self.sys.rollout(
+                controller=self.controller,
+                data=data, train=True
+            )
         else:
             xs, ys, us = self.sys.rollout(
                 controller=self.controller,
                 data=data
             )
-        assert xs.shape==(S, T, num_states)
+        assert xs.shape==(S, T, num_states), xs.shape
         return xs, ys, us
 
     def parameter_shapes(self):

@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
 
-from assistive_functions import WrapLogger
+from assistive_functions import WrapLogger, _check_data_dim
 from config import device
 
 
@@ -52,7 +52,7 @@ class PsiU(nn.Module):
                     self, name+'_vec',
                     torch.normal(
                         0, initialization_std, size=(shape[0] * shape[1],),
-                        device=device, requires_grad=False, 
+                        device=device, requires_grad=False,
                         dtype=torch.float32
                     )
                 )
@@ -96,19 +96,32 @@ class PsiU(nn.Module):
         self.C1 = -H21
 
     def forward(self, t, w, xi):
+        # w and xi must be of shape (batch_size, 1, num_states)
+        w = _check_data_dim(w, (1, self.num_states))
+        xi = _check_data_dim(xi, (1, self.n_xi))
+        # batch size of w and xi must match
+        batch_size = w.shape[0]
+        assert batch_size==xi.shape[0], 'batch size mismatch between w and xi.'
+
         vec = torch.zeros(self.l).to(device)
         vec[0] = 1
-        epsilon = torch.zeros(self.l).to(device)
+        epsilon = torch.zeros(batch_size, 1, self.l).to(device)
         v = F.linear(xi, self.C1[0,:]) + F.linear(w, self.D12[0,:])  # + self.bv[0]
-        epsilon = epsilon + vec * torch.tanh(v/self.Lambda[0])
+        assert v.shape==(batch_size, 1)
+        epsilon = epsilon + (vec * torch.tanh(v/self.Lambda[0])).reshape(batch_size, 1, self.l)
         for i in range(1, self.l):
             vec = torch.zeros(self.l).to(device)  # mask -- all zeros except in one position
             vec[i] = 1
             v = F.linear(xi, self.C1[i,:]) + F.linear(epsilon, self.D11[i,:]) + F.linear(w, self.D12[i,:])  # self.bv[i]
-            epsilon = epsilon + vec * torch.tanh(v/self.Lambda[i])
+            assert v.shape==(batch_size, 1)
+            epsilon = epsilon + (vec * torch.tanh(v/self.Lambda[i])).reshape(batch_size, 1, self.l)
+        assert epsilon.shape==(batch_size, 1, self.l)
         E_xi_ = F.linear(xi, self.F) + F.linear(epsilon, self.B1) + F.linear(w, self.B2)  # + self.bxi
+        assert E_xi_.shape==(batch_size, 1, self.n_xi)
         xi_ = F.linear(E_xi_, self.E.inverse())
+        assert xi_.shape==(batch_size, 1, self.n_xi)
         u = F.linear(xi, self.C2) + F.linear(epsilon, self.D21) + F.linear(w, self.D22)  # + self.bu
+        assert u.shape==(batch_size, 1, self.num_inputs)
         return u, xi_
 
     def parameter_shapes(self):
@@ -133,33 +146,58 @@ class RENController(nn.Module):
     ):
         super().__init__()
         assert train_method in ['empirical', 'SVGD']
-        self.num_states = num_states    # was self.n
-        self.num_inputs = num_inputs  # was self.m
+        self.num_states = num_states
+        self.num_inputs = num_inputs
+        self.logger = WrapLogger(logger)
+        self.output_amplification = output_amplification
+        # define the REN
         self.psi_u = PsiU(
             self.num_states, self.num_inputs, n_xi, l, train_method,
             initialization_std=initialization_std
-        )  # This is the REN
-        self.noiseless_forward = noiseless_forward  # this is the model of the system
+        )
+        # define the system model (dynamics without process noise)
+        self.noiseless_forward = noiseless_forward
         # set initial conditions
-        self.t = 0
-        self.x_init, self.u_init = x_init, u_init
-        self.last_y = copy.deepcopy(self.x_init)
-        self.last_u = copy.deepcopy(self.u_init)
-        self.last_xi = torch.zeros(self.psi_u.n_xi).to(device)
-        self.logger = WrapLogger(logger)
-        self.output_amplification = output_amplification
+        self.x_init = x_init.reshape(1, self.num_states)
+        self.u_init = u_init.reshape(1, self.num_inputs)
+        self.reset()
 
     def reset(self):
         self.t = 0
         self.last_y = copy.deepcopy(self.x_init)
         self.last_u = copy.deepcopy(self.u_init)
-        self.last_xi = torch.zeros(self.psi_u.n_xi).to(device)
+        self.last_xi = torch.zeros(1, self.psi_u.n_xi).to(device)
+        self.batch_size = None
 
     def forward(self, y_):
+        # batch y_ to (batch_size, num_states, 1)
+        if len(y_.shape)==1:
+            y_ = y_.reshape(1, -1, 1)
+        elif len(y_.shape)==2:
+            y_ = y_.reshape(1, *y_.shape)
+        else:
+            assert len(y_.shape)==3
+        assert y_.shape[1]==1, y_.shape[2]==self.num_states
+        # batch size should be the same when simulating for several iters
+        if self.batch_size is None:
+            self.batch_size = y_.shape[0]
+            self.last_y = self.last_y.reshape(1, *self.last_y.shape).repeat(self.batch_size, 1, 1)   # same init condition in all batches
+            self.last_u = self.last_u.reshape(1, *self.last_u.shape).repeat(self.batch_size, 1, 1)   # same init condition in all batches
+            self.last_xi = self.last_xi.reshape(1, *self.last_xi.shape).repeat(self.batch_size, 1, 1)# same init condition in all batches
+        else:
+            assert self.batch_size==y_.shape[0]
+        # apply noiseless forward
         x_noiseless = self.noiseless_forward(self.t, self.last_y, self.last_u)
-        w_ = y_ - x_noiseless  # reconstruction of the noise
+        assert x_noiseless.shape==(self.batch_size, 1, self.num_states), x_noiseless.shape
+        # reconstruct the noise
+        w_ = y_ - x_noiseless
+        assert w_.shape==(self.batch_size, 1, self.num_states), w_.shape
+        # apply REN
         u_, xi_ = self.psi_u.forward(self.t, w_, self.last_xi)
         u_ = u_*self.output_amplification
+        assert u_.shape==(self.batch_size, 1, self.num_inputs), u_.shape
+        assert xi_.shape==(self.batch_size, 1, self.psi_u.n_xi), xi_.shape
+        # update internal states
         self.last_y, self.last_u = y_, u_
         self.last_xi = xi_
         self.t += 1

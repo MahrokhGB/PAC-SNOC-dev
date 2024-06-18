@@ -47,3 +47,20 @@ def plot_rect(theta, bias, theta_grid, bias_grid, ax, label, color):
         Rectangle((r_ind_bias, r_ind_theta),
         1, 1, fill=False, edgecolor=color, lw=3, label=label, linestyle='-'))
     return
+
+
+def _check_data_dim(x, vec_dim):
+    # make sure the first dimension is batch_size
+    if len(x.shape)==len(vec_dim)+1:
+        for d_ind, d in enumerate(vec_dim):
+            if not d is None:
+                assert x.shape[d_ind+1]==d, 'dimension mismatch in dim ' +str(d_ind) + 'required ' + str(d) + ', found '+str(x.shape[d_ind+1])
+        return x
+    elif len(x.shape)==len(vec_dim):
+        for d_ind, d in enumerate(vec_dim):
+            if not d is None:
+                assert x.shape[d_ind]==d, 'dimension mismatch in dim ' +str(d_ind)
+        return x.reshape(1, *x.shape)
+    else:
+        print(x.shape, vec_dim)
+        raise Exception()

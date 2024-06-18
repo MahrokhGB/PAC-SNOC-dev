@@ -17,7 +17,7 @@ torch.manual_seed(random_seed)
 col_av = True
 obstacle = True
 is_linear = False
-fname = None      # set to None to be determined automatically
+fname = 'test'      # set to None to be determined automatically
 
 # ----- SET UP LOGGER -----
 exp_name = 'robotsX'
@@ -123,9 +123,14 @@ x_log, _, u_log = sys.rollout(ctl, plot_data)
 # Plots:
 fname_plot = 'CL'
 filename = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results', fname_plot)
-plot_trajectories(x_log, xbar, sys.n_agents, exp_name=exp_name, filename=filename, text="CL - before training", T=t_ext)
+plot_trajectories(
+    x_log[0, :, :], # remove extra dim due to batching
+    xbar, sys.n_agents, exp_name=exp_name, filename=filename, text="CL - before training", T=t_ext
+)
 # collisions before training
-num_col = detect_collisions_singletraj(x_log, n_agents, min_dist)
+num_col = detect_collisions_singletraj(
+    x_log[0, :, :], # remove extra dim due to batching
+    n_agents, min_dist)
 msg += '\nBefore training: Number of collisions in train data = ' + str(num_col)
 
 # ------------ 4. Training ------------
