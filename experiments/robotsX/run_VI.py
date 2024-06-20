@@ -135,7 +135,7 @@ for name in training_param_names:
 # ------ 2.5. define VI controller ------
 batch_size = 5
 lr = 1e-2
-epochs = 3000
+epochs = 3
 log_period = 50
 early_stopping = True
 n_xi = 8       # size of the linear part of REN
@@ -207,7 +207,8 @@ if num_vfs>1:
 else:
     vf_num=1
     # save this factor
-    res_dict = vi_cont.var_post.parameters()
+    res_dict = vi_cont.var_post.parameters_dict()
+
     res_dict['num_rollouts'] = num_rollouts
     res_dict['Q'], res_dict['alpha_u'] = Q, alpha_u
     res_dict['alpha_ca'], res_dict['alpha_obst'] = alpha_ca, alpha_obst
@@ -226,16 +227,18 @@ else:
     logger.info('model saved.')
 
 # eval on train data
-bounded_train_loss = vi_cont.eval_rollouts(train_data)
-original_train_loss = vi_cont.eval_rollouts(train_data, loss_fn=original_loss_fn)
+logger.info('evaluating the final model ...')
+num_sampled_controllers=3
+bounded_train_loss = vi_cont.eval_rollouts(train_data, num_sampled_controllers=num_sampled_controllers)
+original_train_loss = vi_cont.eval_rollouts(train_data, num_sampled_controllers=num_sampled_controllers, loss_fn=original_loss_fn)
 logger.info('Final results on the entire train data: Bounded train loss = {:.4f}, original train loss = {:.4f}'.format(
     bounded_train_loss, original_train_loss
 ))
 
 # ------------ 5. Test Dataset ------------
 
-bounded_test_loss = vi_cont.eval_rollouts(test_data)
-original_test_loss = vi_cont.eval_rollouts(test_data, loss_fn=original_loss_fn)
+bounded_test_loss = vi_cont.eval_rollouts(test_data, num_sampled_controllers=num_sampled_controllers)
+original_test_loss = vi_cont.eval_rollouts(test_data, num_sampled_controllers=num_sampled_controllers, loss_fn=original_loss_fn)
 msg = 'True bounded test loss = {:.4f}, '.format(bounded_test_loss)
 msg += 'true original test loss = {:.2f} '.format(original_test_loss)
 msg += '(approximated using {:3.0f} test rollouts).'.format(test_data.shape[0])

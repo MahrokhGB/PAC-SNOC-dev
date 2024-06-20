@@ -23,16 +23,16 @@ class PsiU(nn.Module):
         self.train_method = train_method
         # # # # # # # # # Training parameters # # # # # # # # #
         # Auxiliary matrices:
-        self.X_shape = (2*n_xi+l, 2*n_xi+l)
-        self.Y_shape = (n_xi, n_xi)
+        self.X_shape = (2*self.n_xi+self.l, 2*self.n_xi+self.l)
+        self.Y_shape = (self.n_xi, self.n_xi)
         # NN state dynamics:
-        self.B2_shape = (n_xi, self.num_states)
+        self.B2_shape = (self.n_xi, self.num_states)
         # NN output:
-        self.C2_shape = (self.num_inputs, n_xi)
-        self.D21_shape = (self.num_inputs, l)
+        self.C2_shape = (self.num_inputs, self.n_xi)
+        self.D21_shape = (self.num_inputs, self.l)
         self.D22_shape = (self.num_inputs, self.num_states)
         # v signal:
-        self.D12_shape = (l, self.num_states)
+        self.D12_shape = (self.l, self.num_states)
 
         # define training nn params
         self.training_param_names = ['X', 'Y', 'B2', 'C2', 'D21', 'D22', 'D12']
@@ -77,13 +77,11 @@ class PsiU(nn.Module):
             vectorized_param = getattr(self, name+'_vec')
             setattr(self, name, vectorized_param.reshape(shape))
         # dependent params
-        n_xi = self.n_xi
-        l = self.l
-        H = torch.matmul(self.X.T, self.X) + self.epsilon * torch.eye(2*n_xi+l).to(device)
-        h1, h2, h3 = torch.split(H, [n_xi, l, n_xi], dim=0)
-        H11, H12, H13 = torch.split(h1, [n_xi, l, n_xi], dim=1)
-        H21, H22, _ = torch.split(h2, [n_xi, l, n_xi], dim=1)
-        H31, H32, H33 = torch.split(h3, [n_xi, l, n_xi], dim=1)
+        H = torch.matmul(self.X.T, self.X) + self.epsilon * torch.eye(2*self.n_xi+self.l).to(device)
+        h1, h2, h3 = torch.split(H, [self.n_xi, self.l, self.n_xi], dim=0)
+        H11, H12, H13 = torch.split(h1, [self.n_xi, self.l, self.n_xi], dim=1)
+        H21, H22, _ = torch.split(h2, [self.n_xi, self.l, self.n_xi], dim=1)
+        H31, H32, H33 = torch.split(h3, [self.n_xi, self.l, self.n_xi], dim=1)
         P = H33
         # NN state dynamics:
         self.F = H31

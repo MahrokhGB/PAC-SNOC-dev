@@ -283,30 +283,40 @@ class VICont():
     #     assert len(res_xs) == self.num_particles
     #     return res_xs, res_ys, res_us
 
-    # def eval_rollouts(self, data, get_full_list=False, loss_fn=None):
-    #     """
-    #     evaluates several rollouts given by 'data'.
-    #     if 'get_full_list' is True, returns a list of losses for each particle.
-    #     o.w., returns average loss of all particles.
-    #     if 'loss_fn' is None, uses the bounded loss function as in Gibbs posterior.
-    #     loss_fn can be provided to evaluate the dataset using the original unbounded loss.
-    #     """
-    #     with torch.no_grad():
-    #         losses=[None]*self.num_particles
-    #         res_xs, _, res_us = self.rollout(data)
-    #         for particle_num in range(self.num_particles):
-    #             if loss_fn is None:
-    #                 losses[particle_num] = self.posterior.loss_fn.forward(
-    #                     res_xs[particle_num], res_us[particle_num]
-    #                 ).item()
-    #             else:
-    #                 losses[particle_num] = loss_fn.forward(
-    #                     res_xs[particle_num], res_us[particle_num]
-    #                 ).item()
-    #     if get_full_list:
-    #         return losses
-    #     else:
-    #         return sum(losses)/self.num_particles
+
+    def eval_rollouts(self, data, num_sampled_controllers, get_full_list=False, loss_fn=None):
+        """
+        evaluates several rollouts given by 'data'.
+        if 'get_full_list' is True, returns a list of losses for each particle.
+        o.w., returns average loss of all particles.
+        if 'loss_fn' is None, uses the bounded loss function as in Gibbs posterior.
+        loss_fn can be provided to evaluate the dataset using the original unbounded loss.
+        """
+        # use default loss function if not specified
+        loss_fn = loss_fn if not loss_fn is None else self.generic_Gibbs.loss_fn
+        # evaluate
+        losses=[None]*num_sampled_controllers
+        with torch.no_grad():
+            for controller_num in range(num_sampled_controllers):
+                print(controller_num)
+                # sample controller params
+                print('sample controllers')
+                sampled_controller_params =self.sample()
+                print(sampled_controller_params)
+                # closed-loop system using these params
+                cl_system_sampled_params = self.generic_Gibbs.get_forward_cl_system(
+                    sampled_controller_params
+                )
+                # rollout the closed-loop system
+                res_xs, _, res_us = cl_system_sampled_params.rollout(data)
+                # evaluate
+                losses[controller_num] = loss_fn.forward(
+                    res_xs, res_us
+                ).item()
+        if get_full_list:
+            return losses
+        else:
+            return sum(losses)/num_sampled_controllers
 
 
     # def _vectorize_pred_dist(self, pred_dist):
@@ -398,6 +408,9 @@ class GaussVarPosterior(torch.nn.Module):
 
     def log_prob(self, value):
         return self.forward().log_prob(value)
+
+    def parameters_dict(self):
+        return {'loc':self.loc.detach().clone(), 'scale_raw':self.scale_raw.detach().clone()}
 
     @property
     def mode(self):
