@@ -298,11 +298,8 @@ class VICont():
         losses=[None]*num_sampled_controllers
         with torch.no_grad():
             for controller_num in range(num_sampled_controllers):
-                print(controller_num)
                 # sample controller params
-                print('sample controllers')
-                sampled_controller_params =self.sample()
-                print(sampled_controller_params)
+                sampled_controller_params =self.var_post.sample()
                 # closed-loop system using these params
                 cl_system_sampled_params = self.generic_Gibbs.get_forward_cl_system(
                     sampled_controller_params

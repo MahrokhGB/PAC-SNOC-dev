@@ -143,18 +143,24 @@ l = 8          # size of the non-linear part of REN
 num_vfs=1
 
 
-# OrderedDict([('out.bias', torch.Size([1])), ('out.weight', torch.Size([1]))])
-# var_prior_dict ={
-#     'out.bias':{
-#         'mean':torch.tensor(prior_dict['bias_loc']),
-#         'variance':torch.tensor(prior_dict['bias_scale']**2)
-#     },
-#     'out.weight':{
-#         'mean':torch.tensor(prior_dict['weight_loc'].flatten()),
-#         'variance':torch.tensor(prior_dict['weight_scale']**2)
-#     }
-# }
 
+# ------ Load trained model ------
+if num_vfs>1:
+    raise NotImplementedError
+else:
+    vf_num=1
+
+    if fname is not None:
+        filename = fname+'_factor'+str(vf_num)+'.pt'
+    else:
+        filename = exp_name+'VIfactor'+str(vf_num)+'_T'+str(t_end)+'_S'+str(num_rollouts)
+        filename += '_stdini'+str(std_ini)+'_agents'+str(n_agents)+'_RS'+str(random_seed)+'.pt'
+    file_path = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results', 'trained_models')
+    filename = os.path.join(file_path, filename)
+    res_dict = torch.load(filename)
+    logger.info('model loaded.')
+
+# init VI controller
 vi_cont = VICont(
     sys, train_d=train_data, lr=lr, loss=bounded_loss_fn,
     prior_dict=prior_dict,
@@ -168,63 +174,13 @@ vi_cont = VICont(
     # debug
     debug=DEBUG
 )
-
-# print(vi_cont.generic_Gibbs.parameter_shapes())
-
-# ------------ 3. Training ------------
-msg = '------------------ ROBOTS X EXP------------------'
-msg += '\nVI'
-msg += '\n[INFO] TASK: avoid collisions: ' + str(col_av) + ', avoid obstacles: ' + str(obstacle)
-msg += ', use linearized system model: ' + str(is_linear)
-msg += '\n[INFO] Dataset: n_agents: %i' % n_agents + ' -- num_rollouts: %i' % num_rollouts
-msg += ' -- std_ini: %.2f' % std_ini + ' -- spring k: %.2f' % k
-msg += '\n[INFO] Initial condition: x_0: ' + str(x0) + ' -- xbar: ' + str(xbar)
-msg += '\n[INFO] Loss: t_end: %i'% t_end + ' -- alpha_u: %.6f' % alpha_u
-msg += ' -- alpha_ca: %.f' % alpha_ca if col_av else ''
-msg += ' -- alpha_obst: %.1f' % alpha_obst if obstacle else ''
-msg += '\n[INFO] REN: n_xi: %i' % n_xi + ' -- l: %i' % l
-msg += '\n[INFO] Solver: lr: %.4f' % lr + ' -- epochs: %i' % epochs
-msg += ' -- batch_size: %i' % batch_size + ', -- early stopping:' + str(early_stopping)
-msg += '\n[INFO] VI: epsilon: %.2f' % epsilon + ' -- num variational factors: %2.f' % num_vfs + ' -- gibbs_lambda: %.2f' % gibbs_lambda
-msg += ' (use lambda_*)' if gibbs_lambda == gibbs_lambda_star else ''
-msg += ' -- prior std: %.4f' % prior_std
-logger.info(msg)
-
-logger.info('------------ Begin training ------------')
-vi_cont.fit(
-    early_stopping=early_stopping, log_period=log_period
-)
-logger.info('Training completed.')
-
-if DEBUG:
-    for name, param in vi_cont.var_post.parameters():
-        print(name, param)
-    quit()
-
-# ------ Save trained model ------
-if num_vfs>1:
-    raise NotImplementedError
-else:
-    vf_num=1
-    # save this factor
-    res_dict = vi_cont.var_post.parameters_dict()
-
-    res_dict['num_rollouts'] = num_rollouts
-    res_dict['Q'], res_dict['alpha_u'] = Q, alpha_u
-    res_dict['alpha_ca'], res_dict['alpha_obst'] = alpha_ca, alpha_obst
-    res_dict['n_xi'], res_dict['l'] = n_xi, l
-    if fname is not None:
-        filename = fname+'_factor'+str(vf_num)+'.pt'
-    else:
-        filename = exp_name+'VIfactor'+str(vf_num)+'_T'+str(t_end)+'_S'+str(num_rollouts)
-        filename += '_stdini'+str(std_ini)+'_agents'+str(n_agents)+'_RS'+str(random_seed)+'.pt'
-    file_path = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results', 'trained_models')
-    path_exist = os.path.exists(file_path)
-    if not path_exist:
-        os.makedirs(file_path)
-    filename = os.path.join(file_path, filename)
-    torch.save(res_dict, filename)
-    logger.info('model saved.')
+print('before', vi_cont.var_post.loc[0:5])
+# set params
+print(res_dict['loc'][0:5])
+vi_cont.var_post.loc = torch.nn.Parameter(res_dict['loc'])
+vi_cont.var_post.scale_raw = torch.nn.Parameter(res_dict['scale_raw'])
+# res_dict = vi_cont.var_post.parameters_dict()
+print('after', vi_cont.var_post.loc[0:5])
 
 # eval on train data
 logger.info('evaluating the final model ...')
@@ -234,7 +190,8 @@ original_train_loss = vi_cont.eval_rollouts(train_data, num_sampled_controllers=
 logger.info('Final results on the entire train data: Bounded train loss = {:.4f}, original train loss = {:.4f}'.format(
     bounded_train_loss, original_train_loss
 ))
-
+# cd PAC-SNOC-dev/experiments/robotsX
+# python3 test.py
 # ------------ 5. Test Dataset ------------
 
 bounded_test_loss = vi_cont.eval_rollouts(test_data, num_sampled_controllers=num_sampled_controllers)
