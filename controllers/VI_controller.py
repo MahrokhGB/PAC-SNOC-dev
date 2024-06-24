@@ -102,10 +102,6 @@ class VICont():
             loss_VI.backward()
             self.optimizer.step()
             self.lr_scheduler.step()
-            # except Exception as e:
-            #     self.logger.info('[Unhandled ERR] in VI step: ' + type(e).__name__ + '\n')
-            #     self.logger.info(e)
-            #     self.unknown_err = True
 
             # add loss VI to history
             loss_VI_history = loss_VI_history[1:]     # drop oldest
@@ -120,48 +116,27 @@ class VICont():
 
             # --- print stats ---
             if (itr % log_period == 0) and (not self.unknown_err):
+                # average scale
+                scale_av = torch.mean(torch.exp(self.var_post.scale_raw))
+
                 # evaluate mean of cuurent variational factor
-                # Set state dict
-                self.generic_controller.reset()
-                self.generic_controller.set_parameters_as_vector(self.var_post.loc)
-                self.generic_controller.psi_u.eval()
-                # rollout
-                xs, _, us = self.generic_Gibbs.generic_cl_system.sys.rollout(self.generic_controller, task_dict_batch)
-                # loss
-                loss = self.generic_Gibbs.loss_fn.forward(xs, us)
+                loss = self.eval(controller_params=self.var_post.loc, data=task_dict_batch)
 
-
+                # log info
                 duration = time.time() - t
                 t = time.time()
-                message = '\nIter %d/%d - Time %.2f sec - VI Loss %.4f - Av. VI Loss %.4f - Loss %.4f' % (
-                    itr, self.num_iter_fit, duration, loss_VI.item(), sum(loss_VI_history)/log_period, loss.item()
+                message = '\nIter %d/%d - Time %.2f sec - VI Loss %.4f - Av. VI Loss %.4f - Loss %.4f - Scale Av %.4f' % (
+                    itr, self.num_iter_fit, duration, loss_VI.item(), sum(loss_VI_history)/log_period, loss, scale_av
                 )
-                # log info
-                self.logger.info(message)
-                # print('Current dists: weight N({:.2f}, {:.2f}), bias N({:.2f}, {:.2f})'.format(
-                #     self.var_post.loc.detach().numpy()[1], np.exp(self.var_post.scale_raw.detach().numpy()[1]),
-                #     self.var_post.loc.detach().numpy()[0], np.exp(self.var_post.scale_raw.detach().numpy()[0])
-                # ))
-                # print('Average dists: weight N({:.2f}, {:.2f}), bias N({:.2f}, {:.2f})'.format(
-                #     sum([v[0] for v in vf_history])/log_period,
-                #     np.exp(sum([v[1] for v in vf_history])/log_period),
-                #     sum([v[2] for v in vf_history])/log_period,
-                #     np.exp(sum([v[3] for v in vf_history])/log_period)
-                # ))
-
                 # log learning rate
                 # message += ', LR: '+str(self.lr_scheduler.get_last_lr())
+                self.logger.info(message)
 
                 # update the best VFs based on average VI loss
                 if sum(loss_VI_history)/log_period < min_criterion:
                     min_criterion = sum(loss_VI_history)/log_period
                     self.best_vfs = copy.deepcopy(self.var_post)
                     self.logger.info('updated best variational factors.')
-
-
-            # # go one iter back if non-psd
-            # if self.unknown_err:
-            #     self.var_post =copy.deepcopy(self.best_vfs)  # set back to best seen
 
             # stop training
             if self.over_fitted or self.unknown_err:
@@ -177,17 +152,6 @@ class VICont():
         # set back to the best VFs if early stopping
         if early_stopping and (not self.best_vfs is None):
             self.var_post = self.best_vfs
-
-        # # define posterior with average weights of final iters
-        # self.av_var_post = copy.deepcopy(self.var_post)
-        # self.av_var_post.loc = torch.tensor([
-        #     sum([v[1] for v in vf_history])/log_period,
-        #     sum([v[0] for v in vf_history])/log_period,
-        # ])
-        # self.av_var_post.scale_raw = torch.tensor([
-        #     sum([v[3] for v in vf_history])/log_period,
-        #     sum([v[2] for v in vf_history])/log_period,
-        # ])
 
 
 
@@ -216,6 +180,7 @@ class VICont():
             data_tuples_tiled = tasks_dicts #TODO: use the above line
             log_posterior_num = self.generic_Gibbs.log_prob(param_sample, data_tuples_tiled)    # log
             log_var_post = self.var_post.log_prob(param_sample)
+            # print('-log_posterior_num', -torch.mean(log_posterior_num), '-log_var_post', -torch.mean(log_var_post))
             elbo = log_posterior_num - log_var_post
         elbo = elbo.reshape(self.L)
         assert elbo.ndim == 1 and elbo.shape[0] == self.L
@@ -270,66 +235,25 @@ class VICont():
         else:
             self.lr_scheduler = DummyLRScheduler()
 
-    # -------------------------
+    # ------------------------
 
-    # def rollout(self, data):
-    #     """
-    #     rollout using current VFs.
-    #     Tracks grads.
-    #     """
-    #     data = to_tensor(data)
-    #     # if len(data.shape)==2:
-    #     #     data = torch.reshape(data, (data, *data.shape))
-
-    #     res_xs, res_ys, res_us = [], [], []
-    #     for particle_num in range(self.num_particles):
-    #         particle = self.particles[particle_num, :]
-    #         # set this particle as params of a controller
-    #         posterior_copy = self.posterior
-    #         cl_system = posterior_copy.get_forward_cl_system(particle)
-    #         # rollout
-    #         xs, ys, us = cl_system.rollout(data)
-    #         res_xs.append(xs)
-    #         res_ys.append(ys)
-    #         res_us.append(us)
-    #     assert len(res_xs) == self.num_particles
-    #     return res_xs, res_ys, res_us
-
-
-    def eval_rollouts(self, data, num_sampled_controllers, get_full_list=False, loss_fn=None):
+    def eval(self, controller_params, data, loss_fn=None):
         """
-        evaluates several rollouts given by 'data'.
-        if 'get_full_list' is True, returns a list of losses for each particle.
-        o.w., returns average loss of all particles.
+        evaluates a controller with parameters 'controller_params' on 'data'.
         if 'loss_fn' is None, uses the bounded loss function as in Gibbs posterior.
-        loss_fn can be provided to evaluate the dataset using the original unbounded loss.
         """
         # use default loss function if not specified
         loss_fn = loss_fn if not loss_fn is None else self.generic_Gibbs.loss_fn
-        # evaluate
-        losses=[None]*num_sampled_controllers
+        # Set state dict
+        self.generic_controller.reset()
+        self.generic_controller.set_parameters_as_vector(controller_params)
+        self.generic_controller.psi_u.eval()
         with torch.no_grad():
-            for controller_num in range(num_sampled_controllers):
-                # sample controller params
-                sampled_controller_params = self.var_post.sample()
-                print('sampled_controller_params', sampled_controller_params[0:5])
-                # closed-loop system using these params
-                cl_system_sampled_params = self.generic_Gibbs.get_forward_cl_system(
-                    sampled_controller_params
-                )
-                print(cl_system_sampled_params.controller.parameters_as_vector()[0:5])
-                # rollout the closed-loop system
-                res_xs, _, res_us = cl_system_sampled_params.rollout(data)
-                # evaluate
-                losses[controller_num] = loss_fn.forward(
-                    res_xs, res_us
-                ).item()
-                print(losses[controller_num])
-        if get_full_list:
-            return losses
-        else:
-            return sum(losses)/num_sampled_controllers
-
+            # rollout
+            xs, _, us = self.generic_Gibbs.generic_cl_system.sys.rollout(self.generic_controller, data)
+            # loss
+            loss = loss_fn.forward(xs, us)
+        return loss.item()
 
     # def _vectorize_pred_dist(self, pred_dist):
     #     multiv_normal_batched = pred_dist.dists

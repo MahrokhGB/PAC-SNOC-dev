@@ -136,8 +136,6 @@ for name in training_param_names:
 batch_size = 5
 lr = 1e-2
 epochs = 3000
-log_period = 50
-early_stopping = True
 num_vfs=1
 
 
@@ -178,86 +176,20 @@ vi_cont.var_post.loc = torch.nn.Parameter(res_dict['loc'])
 vi_cont.var_post.scale_raw = torch.nn.Parameter(res_dict['scale_raw'])
 
 
-# sample controllers
-num_sampled_controllers=2
-ctl_vi = [None]*num_sampled_controllers
-losses = [None]*num_sampled_controllers
-for p in range(num_sampled_controllers):
-    # sample params
-    # controller_params = vi_cont.var_post.sample()
-    controller_params = vi_cont.var_post.loc
-    print(controller_params[0:5])
-    # define controller
-    ctl_vi[p] = RENController(
-        sys.noiseless_forward, num_states=sys.num_states,
-        num_inputs=sys.num_inputs, output_amplification=20,
-        n_xi=res_dict['n_xi'], l=res_dict['l'], x_init=sys.x_init, u_init=sys.u_init,
-        initialization_std=1,
-        train_method='empirical',
-    )
-    # Set state dict
-    ctl_vi[p].set_parameters_as_vector(controller_params.to(device))
-    ctl_vi[p].psi_u.eval()
-    # rollout
-    xs, _, us = sys.rollout(ctl_vi[p], train_data)
-    # loss
-    losses[p] = original_loss_fn.forward(xs, us).item()
-    print(losses[p])
+# eval on train data
+logger.info('Final results: evaluating the learned variational distribution on the entire train data')
+loss = vi_cont.eval(controller_params=vi_cont.var_post.loc, data=train_data)
+logger.info('Controller with params = mean of the learned distribution: bounded train loss = {:.4f}'.format(
+    loss
+))
+
+num_sampled_controllers=10
+for controller_num in range(num_sampled_controllers):
+    controller_params = vi_cont.var_post.sample()
+    bounded_train_loss = vi_cont.eval(controller_params, data=train_data)
+    original_train_loss = vi_cont.eval(controller_params, data=train_data, loss_fn=original_loss_fn)
+    logger.info('Sampled controller {:.0f}: bounded train loss = {:.4f}, original train loss = {:.4f}'.format(
+        controller_num, bounded_train_loss, original_train_loss
+    ))
 
 
-
-# # res_dict = vi_cont.var_post.parameters_dict()
-# print('loc', vi_cont.var_post.loc[0:5])
-# print('scale', torch.exp(vi_cont.var_post.scale_raw[0:5]))
-
-# # eval on train data
-# logger.info('evaluating the final model ...')
-#
-# # bounded_train_loss = vi_cont.eval_rollouts(train_data, num_sampled_controllers=num_sampled_controllers)
-# original_train_loss = vi_cont.eval_rollouts(train_data, num_sampled_controllers=num_sampled_controllers, loss_fn=original_loss_fn)
-# print(original_train_loss)
-# # logger.info('Final results on the entire train data: Bounded train loss = {:.4f}, original train loss = {:.4f}'.format(
-# #     bounded_train_loss, original_train_loss
-# # ))
-# # cd PAC-SNOC-dev/experiments/robotsX
-# # python3 test.py
-# # ------------ 5. Test Dataset ------------
-
-# # bounded_test_loss = vi_cont.eval_rollouts(test_data, num_sampled_controllers=num_sampled_controllers)
-# # original_test_loss = vi_cont.eval_rollouts(test_data, num_sampled_controllers=num_sampled_controllers, loss_fn=original_loss_fn)
-# # msg = 'True bounded test loss = {:.4f}, '.format(bounded_test_loss)
-# # msg += 'true original test loss = {:.2f} '.format(original_test_loss)
-# # msg += '(approximated using {:3.0f} test rollouts).'.format(test_data.shape[0])
-# # logger.info(msg)
-
-
-
-# define the SVGD controller
-model_keys = ['X_vec', 'Y_vec', 'B2_vec', 'C2_vec', 'D21_vec', 'D22_vec', 'D12_vec']
-n_particles=1
-ctl_svgd = [None]*n_particles
-for p in range(n_particles):
-    # Load saved model
-    f_model = exp_name + '_SVGDparticle' + str(p) + '_T' + str(t_end) + '_S' + str(num_rollouts)
-    f_model += '_stdini' + str(std_ini) + '_agents' + str(n_agents) + '_RS'+str(random_seed) + '.pt'
-    print('Loading ' + f_model)
-    filename_model = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results', 'trained_models', f_model)
-    res_dict_particle = torch.load(filename_model, map_location=torch.device(device))
-    n_xi, l = res_dict_particle['n_xi'], res_dict_particle['l']
-    ctl_svgd[p] = RENController(
-        sys.noiseless_forward, num_states=sys.num_states,
-        num_inputs=sys.num_inputs, output_amplification=20,
-        n_xi=n_xi, l=l, x_init=sys.x_init, u_init=sys.u_init,
-        initialization_std=res_dict_particle['initialization_std'],
-        train_method='SVGD',
-    )
-    # Set state dict
-    for model_key in model_keys:
-        ctl_svgd[p].set_parameter(model_key, res_dict_particle[model_key].to(device))
-    ctl_svgd[p].psi_u.eval()
-    # rollout
-    xs, _, us = sys.rollout(ctl_svgd[p], train_data)
-    # loss
-    loss = original_loss_fn.forward(xs, us).item()
-    print(loss)
-    print(ctl_svgd[p].parameters_as_vector()[0:5])

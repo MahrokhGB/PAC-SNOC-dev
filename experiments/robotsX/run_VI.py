@@ -117,43 +117,32 @@ original_loss_fn = LossRobots(
 epsilon = 0.1       # PAC holds with Pr >= 1-epsilon
 gibbs_lambda_star = (8*num_rollouts*math.log(1/epsilon))**0.5   # lambda for Gibbs
 gibbs_lambda = gibbs_lambda_star
+# gibbs_lambda = 10000
 
 # ------ 2.4. define the prior ------
 prior_std = 7
 prior_dict = {'type':'Gaussian'}
 training_param_names = ['X', 'Y', 'B2', 'C2', 'D21', 'D22', 'D12']
-var_prior_dict = dict.fromkeys(
-    [t+'_vec' for t in training_param_names]
-)
+# var_prior_dict = dict.fromkeys(
+#     [t+'_vec' for t in training_param_names]
+# )
 for name in training_param_names:
     prior_dict[name+'_vec_loc'] = 0
     prior_dict[name+'_vec_scale'] = prior_std
-    var_prior_dict[name+'_vec'] = {
-        'mean': 0, 'scale': prior_std
-    }
+    # var_prior_dict[name+'_vec'] = {
+    #     'mean': 0, 'scale': prior_std
+    # }
 
 # ------ 2.5. define VI controller ------
 batch_size = 5
 lr = 1e-2
-epochs = 3000
+epochs = 500
 log_period = 50
 early_stopping = True
 n_xi = 8       # size of the linear part of REN
 l = 8          # size of the non-linear part of REN
 num_vfs=1
-
-
-# OrderedDict([('out.bias', torch.Size([1])), ('out.weight', torch.Size([1]))])
-# var_prior_dict ={
-#     'out.bias':{
-#         'mean':torch.tensor(prior_dict['bias_loc']),
-#         'variance':torch.tensor(prior_dict['bias_scale']**2)
-#     },
-#     'out.weight':{
-#         'mean':torch.tensor(prior_dict['weight_loc'].flatten()),
-#         'variance':torch.tensor(prior_dict['weight_scale']**2)
-#     }
-# }
+L = 5
 
 vi_cont = VICont(
     sys, train_d=train_data, lr=lr, loss=bounded_loss_fn,
@@ -161,7 +150,7 @@ vi_cont = VICont(
     random_seed=random_seed, optimizer='Adam', batch_size=batch_size, lambda_=gibbs_lambda,
     num_iter_fit=epochs, lr_decay=0.99, logger=logger,
     # VI properties
-    num_vfs=num_vfs, vf_init_std=0.1, vf_cov_type='diag',
+    num_vfs=num_vfs, vf_init_std=1, vf_cov_type='diag', L=L, #TODO: vf_init_std increased from 0.1
     vf_param_dists=None,  # intialize with the prior
     # controller properties
     n_xi=n_xi, l=l, x_init=sys.x_init, u_init=sys.u_init, controller_type='REN',
@@ -185,7 +174,7 @@ msg += ' -- alpha_obst: %.1f' % alpha_obst if obstacle else ''
 msg += '\n[INFO] REN: n_xi: %i' % n_xi + ' -- l: %i' % l
 msg += '\n[INFO] Solver: lr: %.4f' % lr + ' -- epochs: %i' % epochs
 msg += ' -- batch_size: %i' % batch_size + ', -- early stopping:' + str(early_stopping)
-msg += '\n[INFO] VI: epsilon: %.2f' % epsilon + ' -- num variational factors: %2.f' % num_vfs + ' -- gibbs_lambda: %.2f' % gibbs_lambda
+msg += '\n[INFO] VI: L: %i' % L + ' -- epsilon: %.2f' % epsilon + ' -- num variational factors: %2.f' % num_vfs + ' -- gibbs_lambda: %.2f' % gibbs_lambda
 msg += ' (use lambda_*)' if gibbs_lambda == gibbs_lambda_star else ''
 msg += ' -- prior std: %.4f' % prior_std
 logger.info(msg)
@@ -227,19 +216,26 @@ else:
     logger.info('model saved.')
 
 # eval on train data
-logger.info('evaluating the final model ...')
-num_sampled_controllers=10
-bounded_train_loss = vi_cont.eval_rollouts(train_data, num_sampled_controllers=num_sampled_controllers)
-original_train_loss = vi_cont.eval_rollouts(train_data, num_sampled_controllers=num_sampled_controllers, loss_fn=original_loss_fn)
-logger.info('Final results on the entire train data: Bounded train loss = {:.4f}, original train loss = {:.4f}'.format(
-    bounded_train_loss, original_train_loss
+logger.info('Final results: evaluating the learned variational distribution on the entire train data')
+loss = vi_cont.eval(controller_params=vi_cont.var_post.loc, data=train_data)
+logger.info('Controller with params = mean of the learned distribution: bounded train loss = {:.4f}'.format(
+    loss
 ))
+
+num_sampled_controllers=10
+for controller_num in range(num_sampled_controllers):
+    controller_params = vi_cont.var_post.sample()
+    bounded_train_loss = vi_cont.eval(controller_params, data=train_data)
+    original_train_loss = vi_cont.eval(controller_params, data=train_data, loss_fn=original_loss_fn)
+    logger.info('Sampled controller {:.0f}: bounded train loss = {:.4f}, original train loss = {:.4f}'.format(
+        controller_num, bounded_train_loss, original_train_loss
+    ))
 
 # ------------ 5. Test Dataset ------------
 
-bounded_test_loss = vi_cont.eval_rollouts(test_data, num_sampled_controllers=num_sampled_controllers)
-original_test_loss = vi_cont.eval_rollouts(test_data, num_sampled_controllers=num_sampled_controllers, loss_fn=original_loss_fn)
-msg = 'True bounded test loss = {:.4f}, '.format(bounded_test_loss)
-msg += 'true original test loss = {:.2f} '.format(original_test_loss)
-msg += '(approximated using {:3.0f} test rollouts).'.format(test_data.shape[0])
-logger.info(msg)
+# bounded_test_loss = vi_cont.eval_rollouts(test_data, num_sampled_controllers=num_sampled_controllers)
+# original_test_loss = vi_cont.eval_rollouts(test_data, num_sampled_controllers=num_sampled_controllers, loss_fn=original_loss_fn)
+# msg = 'True bounded test loss = {:.4f}, '.format(bounded_test_loss)
+# msg += 'true original test loss = {:.2f} '.format(original_test_loss)
+# msg += '(approximated using {:3.0f} test rollouts).'.format(test_data.shape[0])
+# logger.info(msg)
