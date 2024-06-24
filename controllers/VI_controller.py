@@ -80,7 +80,7 @@ class VICont():
         fits the variational posterior
 
         Args:
-            early_stopping: return model at an evaluated iteration with the lowest loss
+            early_stopping: return model at an evaluated iteration with the lowest VI loss
             log_period (int) number of steps after which to print stats
         """
 
@@ -89,7 +89,7 @@ class VICont():
 
         t = time.time()
         itr = 1
-        loss_history = [None]*log_period
+        loss_VI_history = [None]*log_period
         vf_history = [None]*log_period
         while itr <= self.num_iter_fit:
             sel_inds = self.random_state.choice(self.train_d.shape[0], size=self.batch_size)
@@ -98,8 +98,8 @@ class VICont():
             self.optimizer.zero_grad()
 
             # try:
-            loss = self.get_neg_elbo(task_dict_batch)
-            loss.backward()
+            loss_VI = self.get_neg_elbo(task_dict_batch)
+            loss_VI.backward()
             self.optimizer.step()
             self.lr_scheduler.step()
             # except Exception as e:
@@ -107,9 +107,9 @@ class VICont():
             #     self.logger.info(e)
             #     self.unknown_err = True
 
-            # add loss to history
-            loss_history = loss_history[1:]     # drop oldest
-            loss_history.append(loss.item())    # add newest
+            # add loss VI to history
+            loss_VI_history = loss_VI_history[1:]     # drop oldest
+            loss_VI_history.append(loss_VI.item())    # add newest
             vf_history = vf_history[1:]         # drop oldest
             vf_history.append((
                 self.var_post.loc.detach().cpu().numpy()[1],
@@ -120,10 +120,21 @@ class VICont():
 
             # --- print stats ---
             if (itr % log_period == 0) and (not self.unknown_err):
+                # evaluate mean of cuurent variational factor
+                # Set state dict
+                self.generic_controller.reset()
+                self.generic_controller.set_parameters_as_vector(self.var_post.loc)
+                self.generic_controller.psi_u.eval()
+                # rollout
+                xs, _, us = self.generic_Gibbs.generic_cl_system.sys.rollout(self.generic_controller, task_dict_batch)
+                # loss
+                loss = self.generic_Gibbs.loss_fn.forward(xs, us)
+
+
                 duration = time.time() - t
                 t = time.time()
-                message = '\nIter %d/%d - Time %.2f sec - Loss %.4f - Av. Loss %.4f' % (
-                    itr, self.num_iter_fit, duration, loss.item(), sum(loss_history)/log_period
+                message = '\nIter %d/%d - Time %.2f sec - VI Loss %.4f - Av. VI Loss %.4f - Loss %.4f' % (
+                    itr, self.num_iter_fit, duration, loss_VI.item(), sum(loss_VI_history)/log_period, loss.item()
                 )
                 # log info
                 self.logger.info(message)
@@ -141,9 +152,9 @@ class VICont():
                 # log learning rate
                 # message += ', LR: '+str(self.lr_scheduler.get_last_lr())
 
-                # update the best VFs based on average loss
-                if sum(loss_history)/log_period < min_criterion:
-                    min_criterion = sum(loss_history)/log_period
+                # update the best VFs based on average VI loss
+                if sum(loss_VI_history)/log_period < min_criterion:
+                    min_criterion = sum(loss_VI_history)/log_period
                     self.best_vfs = copy.deepcopy(self.var_post)
                     self.logger.info('updated best variational factors.')
 
@@ -237,6 +248,7 @@ class VICont():
             # Misc
             logger=self.logger
         )
+        self.generic_controller = self.generic_Gibbs.generic_cl_system.controller
 
         """ variational posterior """
         self.var_post = GaussVarPosterior(
@@ -299,17 +311,20 @@ class VICont():
         with torch.no_grad():
             for controller_num in range(num_sampled_controllers):
                 # sample controller params
-                sampled_controller_params =self.var_post.sample()
+                sampled_controller_params = self.var_post.sample()
+                print('sampled_controller_params', sampled_controller_params[0:5])
                 # closed-loop system using these params
                 cl_system_sampled_params = self.generic_Gibbs.get_forward_cl_system(
                     sampled_controller_params
                 )
+                print(cl_system_sampled_params.controller.parameters_as_vector()[0:5])
                 # rollout the closed-loop system
                 res_xs, _, res_us = cl_system_sampled_params.rollout(data)
                 # evaluate
                 losses[controller_num] = loss_fn.forward(
                     res_xs, res_us
                 ).item()
+                print(losses[controller_num])
         if get_full_list:
             return losses
         else:
