@@ -1,10 +1,7 @@
 import torch
 import numpy as np
-from pyro.distributions import Normal
 
-from config import device
-from assistive_functions import to_tensor
-from controllers.abstract import affine_controller
+from controllers.abstract import AffineController
 
 
 def approx_Z(grid_dict, sys, lq_loss, data, lambda_):
@@ -19,7 +16,7 @@ def approx_Z(grid_dict, sys, lq_loss, data, lambda_):
     res = 0
     for ind in range(len(grid_dict['theta'])):
         # set params
-        controller_tmp = affine_controller(
+        controller_tmp = AffineController(
             np.array([[grid_dict['theta'][ind]]]),
             np.array([[grid_dict['bias'][ind]]])
         )

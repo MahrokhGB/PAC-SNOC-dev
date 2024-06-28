@@ -8,23 +8,18 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(1, BASE_DIR)
 
 from config import device
-from controllers.abstract import CLSystem, affine_controller
+from controllers.abstract import CLSystem, AffineController
 from assistive_functions import to_tensor, WrapLogger
-from controllers.vectorized_controller import ControllerVectorized
+from controllers.vectorized_controller import VectorizedController
 from controllers.REN_controller import RENController
 
 
 class GibbsPosterior():
 
     def __init__(
-        self, loss_fn, lambda_, prior_dict, initialization_std,
+        self, loss_fn, lambda_, prior_dict,
         # attributes of the CL system
-        controller_type, sys,
-        # NN controller
-        layer_sizes=None, nonlinearity_hidden=None,
-        nonlinearity_output=None,
-        # REN controller
-        n_xi=None, l=None, x_init=None, u_init=None,
+        controller, sys,
         # misc
         logger=None,
     ):
@@ -32,34 +27,9 @@ class GibbsPosterior():
         self.lambda_ = to_tensor(lambda_)
         self.loss_fn = loss_fn
         self.logger = WrapLogger(logger)
-        # define a generic controller
-        if controller_type == 'NN':
-            assert not layer_sizes is None
-            generic_controller = ControllerVectorized(
-                num_states=sys.num_states, num_inputs=sys.num_inputs,
-                layer_sizes=layer_sizes,
-                nonlinearity_hidden=nonlinearity_hidden,
-                nonlinearity_output=nonlinearity_output
-            )
-            # input_dim, output_dim, requires_bias={'out':True, 'hidden':True}
-        elif controller_type == 'REN':
-            assert not (n_xi is None or l is None or x_init is None or u_init is None)
-            generic_controller = RENController(
-                noiseless_forward=sys.noiseless_forward,
-                output_amplification=20,
-                num_states=sys.num_states, num_inputs=sys.num_inputs,
-                n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
-                train_method='SVGD', initialization_std=initialization_std
-            )
-        elif controller_type=='Affine':
-            generic_controller = affine_controller(
-                np.zeros((1, sys.num_states)), np.zeros((1, sys.num_inputs))
-            )
-        else:
-            raise NotImplementedError
-        # Define a CL system with the given plant and a placeholder for the controller.
+
         # Controller params will be set during training and the resulting CL system is use for evaluation.
-        self.generic_cl_system = CLSystem(sys, generic_controller, random_seed=None)
+        self.generic_cl_system = CLSystem(sys, controller, random_seed=None)
 
         self._params = OrderedDict()
         self._param_dists = OrderedDict()
@@ -76,7 +46,7 @@ class GibbsPosterior():
                 self.logger.info('[WARNING]: prior type not provided. Using Gaussian.')
                 prior_dict['type'] = 'Gaussian'
         # --- set prior for NN controller ---
-        if isinstance(self.generic_cl_system.controller, ControllerVectorized):
+        if isinstance(self.generic_cl_system.controller, VectorizedController):
             for name, shape in self.generic_cl_system.controller.parameter_shapes().items():
                 # weight or bias
                 w_or_b = name.split('.')[1]
@@ -100,15 +70,15 @@ class GibbsPosterior():
                     if not (w_or_b+'_loc' in prior_dict.keys() or w_or_b+'_scale' in prior_dict.keys()):
                         self.logger.info('[WARNING]: prior for ' + w_or_b + ' was not provided. Replaced by default.')
                     dist = Normal(
-                        loc=prior_dict.get(w_or_b+'_loc', 0)*torch.ones(dim).to(device),
-                        scale=prior_dict.get(w_or_b+'_scale', 1)*torch.ones(dim).to(device)
+                        loc=prior_dict.get(w_or_b+'_loc', 0)*torch.ones(dim, device=device),
+                        scale=prior_dict.get(w_or_b+'_scale', 1)*torch.ones(dim, device=device)
                     )
                 # Uniform prior
                 elif prior_dict['type'] == 'Uniform':
                     assert (w_or_b+'_low' in prior_dict.keys()) and (w_or_b+'_high' in prior_dict.keys())
                     dist = Uniform(
-                        low=prior_dict[w_or_b+'_low']*torch.ones(dim).to(device),
-                        high=prior_dict[w_or_b+'_high']*torch.ones(dim).to(device)
+                        low=prior_dict[w_or_b+'_low']*torch.ones(dim, device=device),
+                        high=prior_dict[w_or_b+'_high']*torch.ones(dim, device=device)
                     )
 
                 # set dist
@@ -122,8 +92,8 @@ class GibbsPosterior():
                     if not (name+'_loc' in prior_dict.keys() or name+'_scale' in prior_dict.keys()):
                         self.logger.info('[WARNING]: prior for ' + name + ' was not provided. Replaced by default.')
                     dist = Normal(
-                        loc=prior_dict.get(name+'_loc', 0)*torch.ones(shape).to(device),
-                        scale=prior_dict.get(name+'_scale', 1)*torch.ones(shape).to(device)
+                        loc=prior_dict.get(name+'_loc', 0)*torch.ones(shape, device=device),
+                        scale=prior_dict.get(name+'_scale', 1)*torch.ones(shape, device=device)
                     )
                 # Uniform prior
                 elif prior_dict['type'] == 'Uniform':
@@ -223,6 +193,55 @@ class GibbsPosterior():
         cl_system.controller.set_parameters_as_vector(params)
         return cl_system
 
+
+# -------------------------
+# -------------------------
+from normflows import Target
+# from torch.utils.data import DataLoader
+class GibbsWrapperNF(Target):
+    """
+    Wrap given Gibbs distribution to be used in normflows
+    """
+
+    def __init__(
+        self, target_dist, train_data, data_batch_size=None,
+        prop_scale=torch.tensor(6.0), prop_shift=torch.tensor(-3.0)
+    ):
+        """Constructor
+
+        Args:
+          target_dist: Distribution to be approximated
+          train_data: training data used to compute the Gibbs dist
+          data_batch_size: size of data subsample to use in computing log prob
+          prop_scale: Scale for the uniform proposal
+          prop_shift: Shift for the uniform proposal
+        """
+        super().__init__(prop_scale=prop_scale, prop_shift=prop_shift)
+        self.register_buffer("target_dist", target_dist)
+        self.train_data, self.data_batch_size = train_data, data_batch_size
+        self.max_log_prob = 0.0
+        if not self.data_batch_size is None:
+            raise NotImplementedError   # TODO: random seed must be fixed across REN controller, ...
+        # self.train_dataloader = DataLoader(train_data, batch_size=data_batch_size, shuffle=True)
+
+    def log_prob(self, z):
+        """
+        Args:
+          z: value or batch of latent variable
+
+        Returns:
+          log probability of the distribution for z
+        """
+        # sample data batch
+        # if self.data_batch_size < self.train_data.shape[0]:
+        #     inds =
+        return self.target_dist.log_prob(params=z, train_data=self.train_data)
+
+
+
+
+# -------------------------
+# -------------------------
 
 class CatDist(Distribution):
 

@@ -1,6 +1,6 @@
 import torch, sys
 from numpy import random
-from config import BASE_DIR, device
+from config import BASE_DIR
 sys.path.append(BASE_DIR)
 
 
@@ -43,16 +43,42 @@ class CLSystem(torch.nn.Module):
         return
 
 
-# can be removed and use vectorized
-from controllers.vectorized_controller import ControllerVectorized
-class LinearController(ControllerVectorized):
-    def __init__(self, num_states, num_inputs, requires_bias={'out':True, 'hidden':True}):
-        super().__init__(
-            num_states, num_inputs, layer_sizes=[], nonlinearity_hidden=None,
-            nonlinearity_output=None, requires_bias=requires_bias
+from vectorized_controller import VectorizedController, LinearController
+from REN_controller import RENController
+def get_controller(
+    controller_type,
+    initialization_std,
+    # NN controller
+    layer_sizes=None, nonlinearity_hidden=None, nonlinearity_output=None,
+    # REN controller
+    n_xi=None, l=None, x_init=None, u_init=None
+):
+    if controller_type == 'NN':
+        assert not layer_sizes is None
+        generic_controller = VectorizedController(
+            num_states=sys.num_states, num_inputs=sys.num_inputs,
+            layer_sizes=layer_sizes,
+            nonlinearity_hidden=nonlinearity_hidden,
+            nonlinearity_output=nonlinearity_output,
+            initialization_std=initialization_std
         )
+    elif controller_type == 'REN':
+        assert not (n_xi is None or l is None or x_init is None or u_init is None)
+        generic_controller = RENController(
+            noiseless_forward=sys.noiseless_forward,
+            output_amplification=20,
+            num_states=sys.num_states, num_inputs=sys.num_inputs,
+            n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
+            train_method='SVGD', initialization_std=initialization_std
+        )
+    elif controller_type=='Linear':
+        generic_controller = LinearController(
+            num_states=sys.num_states, num_inputs=sys.num_inputs
+        )
+    else:
+        raise NotImplementedError
 
-
+    return generic_controller
 # ---------- CONTROLLER ----------
 # can be removed
 from assistive_functions import to_tensor

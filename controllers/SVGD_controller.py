@@ -1,9 +1,10 @@
 import torch, time, copy
 from numpy import random
 from config import device
+from controllers.abstract import get_controller
 from assistive_functions import WrapLogger, DummyLRScheduler, to_tensor
-from SVGD_src.svgd import SVGD, RBF_Kernel, IMQSteinKernel
-from SVGD_src.distributions import GibbsPosterior
+from inference_algs.svgd import SVGD, RBF_Kernel, IMQSteinKernel
+from inference_algs.distributions import GibbsPosterior
 
 
 class SVGDCont():
@@ -190,11 +191,10 @@ class SVGDCont():
         n_xi, l, x_init, u_init, initialization_std
     ):
 
-        """define a generic Gibbs posterior"""
-        self.posterior = GibbsPosterior(
+        """define a generic controller"""
+        # define a generic controller
+        generic_controller = get_controller(
             controller_type=controller_type,
-            sys=copy.deepcopy(sys), loss_fn=loss,
-            lambda_=lambda_, prior_dict=prior_dict,
             initialization_std=initialization_std,
             # NN
             layer_sizes=layer_sizes,
@@ -202,7 +202,13 @@ class SVGDCont():
             nonlinearity_output=nonlinearity_output,
             # REN
             n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
-            # Misc
+        )
+
+        """define a generic Gibbs posterior"""
+        self.posterior = GibbsPosterior(
+            controller=generic_controller,
+            sys=copy.deepcopy(sys), loss_fn=loss,
+            lambda_=lambda_, prior_dict=prior_dict,
             logger=self.logger
         )
 

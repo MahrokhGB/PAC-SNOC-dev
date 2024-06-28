@@ -6,8 +6,8 @@ sys.path.insert(1, BASE_DIR)
 
 from assistive_functions import *
 from experiments.scalar.loss_functions import LQLossFH
-from controllers.abstract import affine_controller
-from SVGD_src.approx_upperbound import approx_upper_bound
+from controllers.abstract import AffineController
+from inference_algs.approx_upperbound import approx_upper_bound
 from experiments.scalar.LTI_sys import LTI_system
 from experiments.scalar.scalar_assistive_functions import load_data, compute_posterior_by_gridding
 
@@ -157,7 +157,7 @@ av_test_loss_original = [None]*num_sampled_controllers
 for c_num in range(num_sampled_controllers):
     # define controller
     sc = sampled_controllers[int(c_num)]
-    controller = affine_controller(
+    controller = AffineController(
         np.array([[sc[0]]]), np.array([[sc[1]]])
     )
     # rollout

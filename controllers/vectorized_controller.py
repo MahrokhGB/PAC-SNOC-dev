@@ -75,35 +75,35 @@ class VectorizedModule:
         raise NotImplementedError
 
 
-# ------ linear vectorized ------
-class LinearVectorized(VectorizedModule):
-    def __init__(self, input_dim, output_dim, requires_bias=True, nonlinearity=torch.tanh):
+class LayerVectorized(VectorizedModule):
+    def __init__(self, input_dim, output_dim, nonlinearity, requires_bias=True):
         super().__init__(input_dim, output_dim)
+        self.nonlinearity = nonlinearity
 
-        self.weight = torch.normal(
-            0, 1, size=(input_dim * output_dim,),
-            device=device, requires_grad=True, dtype=torch.float32
+        # initialize weights using the Kaiming method
+        self.weight, _ = _kaiming_uniform_batched(
+            torch.normal(0, 1, size=(input_dim * output_dim,),
+                device=device, requires_grad=True, dtype=torch.float32
+            ),
+            fan=self.input_dim, a=math.sqrt(5), nonlinearity=self.nonlinearity
         )
-        self.weight_dist = None
-        self.bias = torch.zeros(
-            size=(output_dim,), device=device,
-            requires_grad=requires_bias, dtype=torch.float32
-        )
-        self.bias_dist = None
-        self.nonlinearity = nonlinearity  # nonlinearity which will be applied on top of this letter. affects initialization
-        self.reset_parameters()  # initialize weights of NN hidden and output layer by Kaiming method
 
-    def reset_parameters(self):
-        # initialize weights using the Kaiming method and set weights_dist
-        self.weight, self.weight_dist = _kaiming_uniform_batched(self.weight, fan=self.input_dim, a=math.sqrt(5),
-                                                                 nonlinearity=self.nonlinearity)
-        if self.bias is not None and self.bias.requires_grad:
+        # initialize bias using the Kaiming method
+        if requires_bias:
             fan_in = self.output_dim
             bound = 1 / math.sqrt(fan_in)
             torch.nn.init.uniform_(self.bias, -bound, bound)
-            # bias is initialized from a uniform dist, but since log prob might be -inf, approx by normal
-            self.bias_dist = Normal(torch.tensor([0]*self.bias.size(dim=0)).float().to(device),
-                                    torch.tensor([math.sqrt(bound*(bound+1)/3)]*self.bias.size(dim=0)).float().to(device))
+            # bias should be initialized from a uniform dist, but since log prob might be -inf, approx by normal
+            bias_dist = Normal(
+                torch.zeros(output_dim,),
+                torch.tensor([math.sqrt(bound*(bound+1)/3)]*output_dim
+            ).float().to(device))
+            self.bias = bias_dist.sample()
+        else:
+            self.bias = torch.zeros(
+                size=(output_dim,), device=device,
+                requires_grad=False, dtype=torch.float32
+            )
 
     def forward(self, x):
         """
@@ -138,11 +138,15 @@ class LinearVectorized(VectorizedModule):
             else:
                 assert x.ndim == 3 and x.shape[0] == model_batch_size
             # out dimensions correspond to [nn_batch_size, data_batch_size, out_features)
-            return torch.bmm(x.float(), W.float().permute(0, 2, 1)) + b[:, None, :].float()
+            output = torch.bmm(x.float(), W.float().permute(0, 2, 1)) + b[:, None, :].float()
         elif self.weight.ndim == 1:
-            return torch.nn.functional.linear(x, self.weight.view(self.output_dim, self.input_dim), self.bias)
+            output = torch.nn.functional.linear(x, self.weight.view(self.output_dim, self.input_dim), self.bias)
         else:
             raise NotImplementedError
+        # apply nonlinearity
+        if self.nonlinearity is not None:
+            output = self.nonlinearity(output)
+        return output
 
     def parameter_shapes(self):
         if self.bias.requires_grad:
@@ -160,8 +164,8 @@ class LinearVectorized(VectorizedModule):
         return self.forward( *args, **kwargs)
 
 
-class ControllerVectorized(VectorizedModule):
-    """Trainable neural network that batches multiple sets of parameters. That is, each
+class VectorizedController(VectorizedModule):
+    """Trainable neural network that batches multiple sets of parameters.
     """
     def __init__(self, num_states, num_inputs, layer_sizes=(64, 64),  nonlinearity_hidden=torch.tanh,
                  nonlinearity_output=torch.tanh, requires_bias={'out':True, 'hidden':True}):
@@ -175,14 +179,14 @@ class ControllerVectorized(VectorizedModule):
         for i, size in enumerate(layer_sizes):
             setattr(
                 self, 'fc_%i'%(i+1),
-                LinearVectorized(
+                LayerVectorized(
                     prev_size, size,
                     requires_bias=requires_bias['hidden'],
                     nonlinearity=self.nonlinearity_hidden))
             prev_size = size
         setattr(
             self, 'out',
-            LinearVectorized(
+            LayerVectorized(
                 prev_size, num_inputs,
                 requires_bias=requires_bias['out'],
                 nonlinearity=self.nonlinearity_output))
@@ -193,24 +197,20 @@ class ControllerVectorized(VectorizedModule):
         and non-linear activation functions, and returns the final output.
         """
         output = x
+        # apply hidden layers
         for i in range(1, self.n_layers + 1):
             output = getattr(self, 'fc_%i' % i)(output)
-            if self.nonlinearity_hidden is not None:
-                output = self.nonlinearity_hidden(output)
+        # apply output layer
         output = getattr(self, 'out')(output)
-        if self.nonlinearity_output is not None:
-            output = self.nonlinearity_output(output)
         return output
 
     def parameter_shapes(self):
         param_dict = OrderedDict()
-
         # hidden layers
         for i in range(1, self.n_layers + 1):
             layer_name = 'fc_%i' % i
             for name, param in getattr(self, layer_name).parameter_shapes().items():
                 param_dict[layer_name + '.' + name] = param
-
         # last layer
         layer_name = 'out'
         for name, param in getattr(self, layer_name).parameter_shapes().items():
@@ -220,13 +220,11 @@ class ControllerVectorized(VectorizedModule):
 
     def named_parameters(self):
         param_dict = OrderedDict()
-
         # hidden layers
         for i in range(1, self.n_layers + 1):
             layer_name = 'fc_%i' % i
             for name, param in getattr(self, layer_name).named_parameters().items():
                 param_dict[layer_name + '.' + name] = param
-
         # last layer
         layer_name = 'out'
         for name, param in getattr(self, layer_name).named_parameters().items():
@@ -238,8 +236,15 @@ class ControllerVectorized(VectorizedModule):
         return self.forward(*args, **kwargs)
 
 
-# Initialization Helpers
+# ------ linear vectorized ------
+class LinearController(VectorizedController):
+    def __init__(self, num_states, num_inputs, requires_bias={'out':True, 'hidden':True}):
+        super().__init__(
+            num_states, num_inputs, layer_sizes=[], nonlinearity_hidden=None,
+            nonlinearity_output=None, requires_bias=requires_bias
+        )
 
+# Initialization Helpers
 def _kaiming_uniform_batched(tensor, fan, a=0.0, nonlinearity=torch.tanh):
     nonlinearity = 'linear' if nonlinearity == None else nonlinearity.__name__
     gain = torch.nn.init.calculate_gain(nonlinearity, a)

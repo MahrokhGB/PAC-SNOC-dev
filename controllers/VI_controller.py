@@ -2,8 +2,9 @@ import torch, time, copy
 import numpy as np
 from numpy import random
 from config import device
+from controllers.abstract import get_controller
 from assistive_functions import WrapLogger, DummyLRScheduler, to_tensor
-from SVGD_src.distributions import GibbsPosterior
+from inference_algs.distributions import GibbsPosterior
 
 
 class VICont():
@@ -197,23 +198,28 @@ class VICont():
         num_vfs, vf_init_std, vf_cov_type, vf_param_dists, L
     ):
         self.num_vfs, self.L = num_vfs, L
-        """define a generic Gibbs posterior"""
-        # only used to know how many parameters we have
-        self.generic_Gibbs = GibbsPosterior(
+
+        """define a generic controller"""
+        # define a generic controller
+        self.generic_controller = get_controller(
             controller_type=controller_type,
-            sys=copy.deepcopy(sys), loss_fn=loss,
-            lambda_=lambda_, prior_dict=prior_dict,
-            initialization_std=0.1, # for initializing REN. not importane
+            initialization_std=0.1, # for initializing REN. not important
             # NN
             layer_sizes=layer_sizes,
             nonlinearity_hidden=nonlinearity_hidden,
             nonlinearity_output=nonlinearity_output,
             # REN
             n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
-            # Misc
+        )
+
+        """define a generic Gibbs posterior"""
+        # only used to know how many parameters we have
+        self.generic_Gibbs = GibbsPosterior(
+            controller=self.generic_controller,
+            sys=copy.deepcopy(sys), loss_fn=loss,
+            lambda_=lambda_, prior_dict=prior_dict,
             logger=self.logger
         )
-        self.generic_controller = self.generic_Gibbs.generic_cl_system.controller
 
         """ variational posterior """
         self.var_post = GaussVarPosterior(

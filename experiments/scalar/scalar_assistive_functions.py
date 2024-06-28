@@ -33,7 +33,7 @@ def load_data(dist_type, S, T, random_seed, S_test = None):
 
 # ------ COMPUTE POSTERIOR BY GRIDDING ------
 import itertools, math, torch
-from controllers.abstract import affine_controller
+from controllers.abstract import AffineController
 
 def compute_posterior_by_gridding(
     prior_dict, lq_loss_bounded, data_train,
@@ -141,7 +141,7 @@ def compute_posterior_by_gridding(
         res_dict['theta'][ind] = theta_tmp
         res_dict['bias'][ind] = bias_tmp
         # define controller
-        c_tmp = affine_controller(
+        c_tmp = AffineController(
             torch.tensor([[theta_tmp]]), torch.tensor([[bias_tmp]])
         )
         # roll
