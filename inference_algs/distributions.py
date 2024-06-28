@@ -157,7 +157,7 @@ class GibbsPosterior():
 
 # -------------------------
 # -------------------------
-from normflows import Target
+from normflows.distributions import Target
 # from torch.utils.data import DataLoader
 class GibbsWrapperNF(Target):
     """

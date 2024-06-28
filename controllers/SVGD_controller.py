@@ -189,10 +189,10 @@ class SVGDCont():
         """define a generic controller"""
         # define a generic controller
         generic_controller = get_controller(
-            controller_type=controller_type,
-            initialization_std=initialization_std,
+            controller_type=controller_type, sys=sys,
             # REN
             n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
+            initialization_std=initialization_std,
         )
 
         """define a generic Gibbs posterior"""

@@ -42,13 +42,12 @@ class CLSystem(torch.nn.Module):
     def named_parameters(self):
         return
 
-from abstract import AffineController
-from REN_controller import RENController
+
+from controllers.REN_controller import RENController
 def get_controller(
-    controller_type,
-    initialization_std,
+    controller_type, sys,
     # REN controller
-    n_xi=None, l=None, x_init=None, u_init=None
+    n_xi=None, l=None, x_init=None, u_init=None, initialization_std=None,
 ):
     if controller_type == 'REN':
         assert not (n_xi is None or l is None or x_init is None or u_init is None)
@@ -61,14 +60,15 @@ def get_controller(
         )
     elif controller_type=='Affine':
         generic_controller = AffineController(
-            num_states=torch.zeros(sys.num_states), num_inputs=torch.zeros(sys.num_inputs)
+            theta=torch.zeros(sys.num_inputs, sys.num_states),
+            bias=torch.zeros(sys.num_inputs, 1)
         )
     else:
         raise NotImplementedError
 
     return generic_controller
+
 # ---------- CONTROLLER ----------
-# can be removed
 from assistive_functions import to_tensor
 class AffineController:
     def __init__(self, theta, bias=None):
