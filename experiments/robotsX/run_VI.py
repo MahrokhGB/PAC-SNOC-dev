@@ -1,5 +1,4 @@
 from datetime import datetime
-from pyro.distributions import Normal
 import sys, os, math, logging
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -136,12 +135,14 @@ for name in training_param_names:
 # ------ 2.5. define VI controller ------
 batch_size = 5
 lr = 1e-2
-epochs = 500
+epochs = 3000
 log_period = 50
 early_stopping = True
-n_xi = 8       # size of the linear part of REN
-l = 8          # size of the non-linear part of REN
-num_vfs=1
+n_xi = 8            # size of the linear part of REN
+l = 8               # size of the non-linear part of REN
+num_vfs = 1
+vf_init_std = 1     #TODO: vf_init_std increased from 0.1
+vf_cov_type = 'diag'
 L = 5
 
 vi_cont = VICont(
@@ -150,7 +151,7 @@ vi_cont = VICont(
     random_seed=random_seed, optimizer='Adam', batch_size=batch_size, lambda_=gibbs_lambda,
     num_iter_fit=epochs, lr_decay=0.99, logger=logger,
     # VI properties
-    num_vfs=num_vfs, vf_init_std=1, vf_cov_type='diag', L=L, #TODO: vf_init_std increased from 0.1
+    num_vfs=num_vfs, vf_init_std=vf_init_std, vf_cov_type=vf_cov_type, L=L,
     vf_param_dists=None,  # intialize with the prior
     # controller properties
     n_xi=n_xi, l=l, x_init=sys.x_init, u_init=sys.u_init, controller_type='REN',
@@ -158,7 +159,6 @@ vi_cont = VICont(
     debug=DEBUG
 )
 
-# print(vi_cont.generic_Gibbs.parameter_shapes())
 
 # ------------ 3. Training ------------
 msg = '------------------ ROBOTS X EXP------------------'
@@ -174,9 +174,10 @@ msg += ' -- alpha_obst: %.1f' % alpha_obst if obstacle else ''
 msg += '\n[INFO] REN: n_xi: %i' % n_xi + ' -- l: %i' % l
 msg += '\n[INFO] Solver: lr: %.4f' % lr + ' -- epochs: %i' % epochs
 msg += ' -- batch_size: %i' % batch_size + ', -- early stopping:' + str(early_stopping)
-msg += '\n[INFO] VI: L: %i' % L + ' -- epsilon: %.2f' % epsilon + ' -- num variational factors: %2.f' % num_vfs + ' -- gibbs_lambda: %.2f' % gibbs_lambda
-msg += ' (use lambda_*)' if gibbs_lambda == gibbs_lambda_star else ''
-msg += ' -- prior std: %.4f' % prior_std
+msg += '\n[INFO] PAC: epsilon: %.2f' % epsilon + ' -- gibbs_lambda: %.2f' % gibbs_lambda
+msg += ' (use lambda_*)' if gibbs_lambda == gibbs_lambda_star else '' + ' -- prior std: %.4f' % prior_std
+msg += '\n[INFO] VI: L: %i' % L + ' -- num variational factors: %2.f' % num_vfs
+msg += ' -- vf_cov_type: ' + vf_cov_type + ' -- vf_init_std: %.2f' % vf_init_std
 logger.info(msg)
 
 logger.info('------------ Begin training ------------')

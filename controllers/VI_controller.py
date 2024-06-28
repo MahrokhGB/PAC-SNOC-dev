@@ -87,7 +87,7 @@ class VICont():
         t = time.time()
         itr = 1
         loss_VI_history = [None]*log_period
-        vf_history = [None]*log_period
+        # vf_history = [None]*log_period
         while itr <= self.num_iter_fit:
             sel_inds = self.random_state.choice(self.train_d.shape[0], size=self.batch_size)
             task_dict_batch = self.train_d[sel_inds, :, :]
@@ -103,18 +103,18 @@ class VICont():
             # add loss VI to history
             loss_VI_history = loss_VI_history[1:]     # drop oldest
             loss_VI_history.append(loss_VI.item())    # add newest
-            vf_history = vf_history[1:]         # drop oldest
-            vf_history.append((
-                self.var_post.loc.detach().cpu().numpy()[1],
-                self.var_post.scale_raw.detach().cpu().numpy()[1],
-                self.var_post.loc.detach().cpu().numpy()[0],
-                self.var_post.scale_raw.detach().cpu().numpy()[0]
-            ))    # add newest
+            # vf_history = vf_history[1:]         # drop oldest
+            # vf_history.append((
+            #     self.var_post.loc.detach().cpu().numpy()[1],
+            #     self.var_post.scale_raw.detach().cpu().numpy()[1],
+            #     self.var_post.loc.detach().cpu().numpy()[0],
+            #     self.var_post.scale_raw.detach().cpu().numpy()[0]
+            # ))    # add newest
 
             # --- print stats ---
             if (itr % log_period == 0) and (not self.unknown_err):
                 # average scale
-                scale_av = torch.mean(torch.exp(self.var_post.scale_raw))
+                scale_av = torch.mean(torch.exp(self.var_post.scale_raw.flatten()))
 
                 # evaluate mean of cuurent variational factor
                 loss = self.eval(controller_params=self.var_post.loc, data=task_dict_batch)
@@ -261,7 +261,7 @@ class VICont():
 # ---------------------------------------
 import math
 from collections import OrderedDict
-from pyro.distributions import Normal
+from pyro.distributions import MultivariateNormal, Normal
 
 class GaussVarPosterior(torch.nn.Module):
     '''
@@ -282,34 +282,48 @@ class GaussVarPosterior(torch.nn.Module):
         '''
         super().__init__()
 
+        self.vf_cov_type = vf_cov_type
         assert vf_cov_type in ['diag', 'full']
 
+        # --- define shapes ---
         self.param_idx_ranges = OrderedDict()
-
         idx_start = 0
         for name, shape in named_param_shapes.items():
             assert len(shape) == 1
             idx_end = idx_start + shape[0]
             self.param_idx_ranges[name] = (idx_start, idx_end)
             idx_start = idx_end
-
         param_shape = torch.Size((idx_start,))
 
-        # initialize VI
+        # --- initialize VI ---
         if vf_param_dists is None: # initialize randomly
             self.loc = torch.nn.Parameter(
                 torch.normal(0.0, vf_init_std, size=param_shape, device=device))
-            if vf_cov_type == 'diag':
+            if self.vf_cov_type == 'diag':
                 self.scale_raw = torch.nn.Parameter(
-                    torch.normal(math.log(0.1), vf_init_std, size=param_shape, device=device))
-                self.dist_fn = lambda: Normal(self.loc, self.scale_raw.exp()).to_event(1)
-            if vf_cov_type == 'full':
-                self.tril_cov = torch.nn.Parameter(
-                    torch.diag(torch.ones(param_shape, device=device).uniform_(0.05, 0.1)))
-                self.dist_fn = lambda: torch.distributions.MultivariateNormal(
-                    loc=self.loc, scale_tril=torch.tril(self.tril_cov))
+                    torch.normal(math.log(0.1), vf_init_std, size=param_shape, device=device)
+                )
+                self.dist_fn = lambda: Normal(
+                    self.loc,
+                    self.scale_raw.exp()
+                ).to_event(1)
+            elif self.vf_cov_type == 'full':
+                self.scale_raw=torch.nn.Parameter(
+                    torch.normal(
+                        math.log(0.1), vf_init_std,
+                        size=param_shape[0]*(param_shape[0]+1)/2, device=device
+                    )
+                )
+                tril_scale_raw = torch.tril(torch.exp(self.scale_raw))
+                covariance_matrix = torch.matmul(torch.transpose(tril_scale_raw), tril_scale_raw)
+                assert covariance_matrix.shape == (param_shape[0], param_shape[0])
+                self.dist_fn = lambda: MultivariateNormal(
+                        loc=self.loc,
+                        covariance_matrix=covariance_matrix
+                    ) #.to_event(1)
+            else:
+                raise NotImplementedError
         else: # initialize from given vf_param_dists
-            # go through all parameters by name and initialize
             loc=[]
             scale_raw = []
             for name, shape in named_param_shapes.items():
@@ -323,11 +337,25 @@ class GaussVarPosterior(torch.nn.Module):
                 else:
                     raise NotImplementedError
             self.loc = torch.nn.Parameter(torch.tensor(loc).float().to(device))
-            if vf_cov_type == 'diag':
-                self.scale_raw = torch.nn.Parameter(torch.tensor(scale_raw).float().to(device))
-                self.dist_fn = lambda: Normal(self.loc, self.scale_raw.exp()).to_event(1)
-            if vf_cov_type == 'full':
+            self.scale_raw = torch.nn.Parameter(torch.tensor(scale_raw).float().to(device))
+            if self.vf_cov_type == 'diag':
+                assert self.scale_raw.shape==(param_shape)
+                self.dist_fn = lambda: Normal(
+                        self.loc,
+                        self.scale_raw.exp()
+                    ).to_event(1)
+            elif self.vf_cov_type == 'full':
+                assert self.scale_raw.shape==(param_shape[0]*(param_shape[0]+1)/2)
+                tril_scale_raw = torch.tril(torch.exp(self.tril_scale_raw))
+                covariance_matrix = torch.matmul(torch.transpose(tril_scale_raw), tril_scale_raw)
+                assert covariance_matrix.shape == (param_shape[0], param_shape[0])
+                self.dist_fn = lambda: MultivariateNormal(
+                        loc=self.loc,
+                        covariance_matrix=covariance_matrix
+                    ) #.to_event(1)
+            else:
                 raise NotImplementedError
+
 
 
     def forward(self):
