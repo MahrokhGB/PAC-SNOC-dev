@@ -36,11 +36,6 @@ class CLSystem(torch.nn.Module):
         assert xs.shape==(S, T, num_states), xs.shape
         return xs, ys, us
 
-    def parameter_shapes(self):
-        return
-
-    def named_parameters(self):
-        return
 
 
 from controllers.REN_controller import RENController
@@ -60,7 +55,7 @@ def get_controller(
         )
     elif controller_type=='Affine':
         generic_controller = AffineController(
-            theta=torch.zeros(sys.num_inputs, sys.num_states),
+            weight=torch.zeros(sys.num_inputs, sys.num_states),
             bias=torch.zeros(sys.num_inputs, 1)
         )
     else:
@@ -69,16 +64,17 @@ def get_controller(
     return generic_controller
 
 # ---------- CONTROLLER ----------
+from collections import OrderedDict
 from assistive_functions import to_tensor
 class AffineController:
-    def __init__(self, theta, bias=None):
-        # theta is a tensor of shape = (num_inputs, num_states)
-        self.theta = to_tensor(theta)
-        if len(self.theta.shape)==1:
-            self.theta = self.theta.reshape(1, -1)
-        self.num_inputs, self.num_states = self.theta.shape
+    def __init__(self, weight, bias=None):
+        # weight is a tensor of shape = (num_inputs, num_states)
+        self.weight = to_tensor(weight)
+        if len(self.weight.shape)==1:
+            self.weight = self.weight.reshape(1, -1)
+        self.num_inputs, self.num_states = self.weight.shape
         # bias is a tensor of shape=(num_inputs, 1)
-        self.bias = torch.zeros((theta.shape[0], 1)) if bias is None else to_tensor(bias)
+        self.bias = torch.zeros((weight.shape[0], 1)) if bias is None else to_tensor(bias)
         if len(self.bias.shape)==1:
             self.bias = self.bias.reshape(-1, 1)
         assert self.bias.shape==(self.num_inputs, 1)
@@ -92,10 +88,23 @@ class AffineController:
         if len(what.shape)==2:
             what = what.reshape(1, *what.shape)
         assert what.shape[1:]==torch.Size([self.num_states, self.num_inputs]), what.shape
-        return torch.matmul(self.theta, what)+self.bias
+        return torch.matmul(self.weight, what)+self.bias
 
-    def set_vector_as_params(self, vec):
-        # last element is bias, the rest is theta
-        assert len(vec) == len(self.theta)+len(self.bias)
-        self.theta = vec[:-1].reshape(self.theta.shape)
-        self.bias = vec[-1].reshape(self.bias.shape)
+    def set_parameters_as_vector(self, vec):
+        # last element is bias, the rest is weight
+        vec = vec.flatten()
+        assert len(vec) == len(self.weight)+len(self.bias)
+        self.weight = vec[:len(self.weight)].reshape(self.weight.shape)
+        self.bias = vec[len(self.weight):].reshape(self.bias.shape)
+
+    def parameter_shapes(self):
+        param_dict = OrderedDict(
+            (name, getattr(self, name).shape) for name in ['weight', 'bias']
+        )
+        return param_dict
+
+    def named_parameters(self):
+        param_dict = OrderedDict(
+            (name, getattr(self, name)) for name in ['weight', 'bias']
+        )
+        return param_dict

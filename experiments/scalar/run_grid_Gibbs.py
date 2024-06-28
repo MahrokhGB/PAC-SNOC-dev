@@ -74,18 +74,18 @@ if prior_center == 'LQR-IH':
         sys.A.detach().numpy(), sys.B.detach().numpy(),
         Q.detach().cpu().numpy(), R.detach().cpu().numpy()
     )
-    theta_mid_grid = -K_lqr_ih
+    weight_mid_grid = -K_lqr_ih
 # define different types of prior
 if prior_type_w == 'Gaussian':
     prior_dict = {
         'type_w':'Gaussian',
-        'weight_loc':theta_mid_grid*(1+gamma), 'weight_scale':delta,
+        'weight_loc':weight_mid_grid*(1+gamma), 'weight_scale':delta,
     }
 elif prior_type_w == 'Uniform':
     prior_dict = {
         'type_w':'Uniform',
-        'weight_low':theta_mid_grid*(1+gamma)-delta,
-        'weight_high':theta_mid_grid*(1+gamma)+delta,
+        'weight_low':weight_mid_grid*(1+gamma)-delta,
+        'weight_high':weight_mid_grid*(1+gamma)+delta,
     }
 elif prior_type_w == 'Gaussian_trunc':
     prior_dict = {
@@ -158,7 +158,7 @@ for c_num in range(num_sampled_controllers):
     # define controller
     sc = sampled_controllers[int(c_num)]
     controller = AffineController(
-        np.array([[sc[0]]]), np.array([[sc[1]]])
+        weight=np.array([[sc[0]]]), bias=np.array([[sc[1]]])
     )
     # rollout
     xs_test, ys_test, us_test = sys.rollout(

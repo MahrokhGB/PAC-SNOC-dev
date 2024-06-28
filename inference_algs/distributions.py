@@ -64,6 +64,30 @@ class GibbsPosterior():
 
                 # set dist
                 self._param_dist(name, dist.to_event(1))
+        elif isinstance(self.generic_cl_system.controller, AffineController):
+            for name, shape in self.generic_cl_system.controller.parameter_shapes().items():
+                # Gaussian prior
+                if prior_dict['type'] == 'Gaussian':
+                    if not (name+'_loc' in prior_dict.keys() or name+'_scale' in prior_dict.keys()):
+                        self.logger.info('[WARNING]: prior for ' + name + ' was not provided. Replaced by default.')
+                    dist = Normal(
+                        loc=prior_dict.get(name+'_loc', 0)*torch.ones(shape).flatten().to(device),
+                        scale=prior_dict.get(name+'_scale', 1)*torch.ones(shape).flatten().to(device)
+                    )
+                # Uniform prior
+                elif prior_dict['type'] == 'Uniform':
+                    assert (name+'_low' in prior_dict.keys()) and (name+'_high' in prior_dict.keys())
+                    dist = Uniform(
+                        low=prior_dict[name+'_low']*torch.ones(shape).to(device),
+                        high=prior_dict[name+'_high']*torch.ones(shape).to(device)
+                    )
+                else:
+                    raise NotImplementedError
+                # set dist
+                print(name, dist, dist.batch_shape)
+                self._param_dist(name, dist.to_event(1))
+        else:
+            raise NotImplementedError
 
         # check that parameters in prior and controller are aligned
         for param_name_cont, param_name_prior in zip(self.generic_cl_system.controller.named_parameters().keys(), self._param_dists.keys()):
@@ -178,7 +202,7 @@ class GibbsWrapperNF(Target):
           prop_shift: Shift for the uniform proposal
         """
         super().__init__(prop_scale=prop_scale, prop_shift=prop_shift)
-        self.register_buffer("target_dist", target_dist)
+        self.target_dist = target_dist
         self.train_data, self.data_batch_size = train_data, data_batch_size
         self.max_log_prob = 0.0
         if not self.data_batch_size is None:

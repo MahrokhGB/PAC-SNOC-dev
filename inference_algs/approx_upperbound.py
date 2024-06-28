@@ -17,8 +17,8 @@ def approx_Z(grid_dict, sys, lq_loss, data, lambda_):
     for ind in range(len(grid_dict['theta'])):
         # set params
         controller_tmp = AffineController(
-            np.array([[grid_dict['theta'][ind]]]),
-            np.array([[grid_dict['bias'][ind]]])
+            weight=np.array([[grid_dict['theta'][ind]]]),
+            bias=np.array([[grid_dict['bias'][ind]]])
         )
         # roll out
         xs_train, _, us_train = sys.rollout(
