@@ -25,9 +25,9 @@ class PsiU(nn.Module):
         # Auxiliary matrices:
         self.X_shape = (2*self.n_xi+self.l, 2*self.n_xi+self.l)
         self.Y_shape = (self.n_xi, self.n_xi)
-        # NN state dynamics:
+        # state dynamics:
         self.B2_shape = (self.n_xi, self.num_states)
-        # NN output:
+        # output:
         self.C2_shape = (self.num_inputs, self.n_xi)
         self.D21_shape = (self.num_inputs, self.l)
         self.D22_shape = (self.num_inputs, self.num_states)

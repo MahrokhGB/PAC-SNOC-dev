@@ -10,7 +10,6 @@ sys.path.insert(1, BASE_DIR)
 from config import device
 from controllers.abstract import CLSystem, AffineController
 from assistive_functions import to_tensor, WrapLogger
-from controllers.vectorized_controller import VectorizedController
 from controllers.REN_controller import RENController
 
 
@@ -45,47 +44,9 @@ class GibbsPosterior():
             else:
                 self.logger.info('[WARNING]: prior type not provided. Using Gaussian.')
                 prior_dict['type'] = 'Gaussian'
-        # --- set prior for NN controller ---
-        if isinstance(self.generic_cl_system.controller, VectorizedController):
-            for name, shape in self.generic_cl_system.controller.parameter_shapes().items():
-                # weight or bias
-                w_or_b = name.split('.')[1]
-                # dimension
-                if w_or_b == 'weight':
-                    if 'nn' in name and layer_sizes == []:
-                        dim = self.generic_cl_system.sys.num_states * self.generic_cl_system.sys.num_inputs
-                    else:
-                        dim = shape
-                elif w_or_b == 'bias':
-                    if 'out' in name:
-                        dim = self.generic_cl_system.sys.num_inputs
-                    elif 'fc' in name:
-                        dim = shape
-                    else:
-                        raise NotImplementedError
-                else:
-                    self.logger.info('[ERROR] name ' + name + ' not recognized.')
-                # Gaussian prior
-                if prior_dict['type'] == 'Gaussian':
-                    if not (w_or_b+'_loc' in prior_dict.keys() or w_or_b+'_scale' in prior_dict.keys()):
-                        self.logger.info('[WARNING]: prior for ' + w_or_b + ' was not provided. Replaced by default.')
-                    dist = Normal(
-                        loc=prior_dict.get(w_or_b+'_loc', 0)*torch.ones(dim, device=device),
-                        scale=prior_dict.get(w_or_b+'_scale', 1)*torch.ones(dim, device=device)
-                    )
-                # Uniform prior
-                elif prior_dict['type'] == 'Uniform':
-                    assert (w_or_b+'_low' in prior_dict.keys()) and (w_or_b+'_high' in prior_dict.keys())
-                    dist = Uniform(
-                        low=prior_dict[w_or_b+'_low']*torch.ones(dim, device=device),
-                        high=prior_dict[w_or_b+'_high']*torch.ones(dim, device=device)
-                    )
-
-                # set dist
-                self._param_dist(name, dist.to_event(1))
 
         # set prior for REN controller
-        elif isinstance(self.generic_cl_system.controller, RENController):
+        if isinstance(self.generic_cl_system.controller, RENController):
             for name, shape in self.generic_cl_system.controller.parameter_shapes().items():
                 # Gaussian prior
                 if prior_dict['type'] == 'Gaussian':

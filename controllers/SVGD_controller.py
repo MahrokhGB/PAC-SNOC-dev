@@ -14,8 +14,6 @@ class SVGDCont():
         initial_particles=None, kernel='RBF', bandwidth=None,
         random_seed=None, optimizer='Adam', batch_size=-1, lambda_=None,
         num_iter_fit=None, lr_decay=1.0, logger=None,
-        # NN controller properties
-        layer_sizes=None, nonlinearity_hidden=None, nonlinearity_output=None,
         # REN controller properties
         n_xi=None, l=None, x_init=None, u_init=None,
     ):
@@ -43,7 +41,7 @@ class SVGDCont():
         assert num_states == sys.num_states
         assert T == loss.T
         assert optimizer in ['Adam', 'SGD']
-        assert controller_type in ['NN', 'REN']
+        assert controller_type in ['REN', 'Affine']
 
         self.fitted, self.over_fitted = False, False
         self.unknown_err = False
@@ -54,9 +52,7 @@ class SVGDCont():
             sys=sys, lambda_=lambda_, loss=loss, prior_dict=prior_dict,
             initial_particles=initial_particles, kernel=kernel,
             bandwidth=bandwidth, optimizer=optimizer, lr=lr,
-            lr_decay=lr_decay, layer_sizes=layer_sizes,
-            nonlinearity_hidden=nonlinearity_hidden,
-            nonlinearity_output=nonlinearity_output,
+            lr_decay=lr_decay,
             controller_type=controller_type,
             n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
             initialization_std=initialization_std
@@ -187,7 +183,6 @@ class SVGDCont():
     def _setup_model_inference(
         self, sys, lambda_, loss, prior_dict, initial_particles,
         kernel, bandwidth, optimizer, lr, lr_decay, controller_type,
-        layer_sizes, nonlinearity_hidden, nonlinearity_output,
         n_xi, l, x_init, u_init, initialization_std
     ):
 
@@ -196,10 +191,6 @@ class SVGDCont():
         generic_controller = get_controller(
             controller_type=controller_type,
             initialization_std=initialization_std,
-            # NN
-            layer_sizes=layer_sizes,
-            nonlinearity_hidden=nonlinearity_hidden,
-            nonlinearity_output=nonlinearity_output,
             # REN
             n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
         )

@@ -42,27 +42,15 @@ class CLSystem(torch.nn.Module):
     def named_parameters(self):
         return
 
-
-from vectorized_controller import VectorizedController, LinearController
+from abstract import AffineController
 from REN_controller import RENController
 def get_controller(
     controller_type,
     initialization_std,
-    # NN controller
-    layer_sizes=None, nonlinearity_hidden=None, nonlinearity_output=None,
     # REN controller
     n_xi=None, l=None, x_init=None, u_init=None
 ):
-    if controller_type == 'NN':
-        assert not layer_sizes is None
-        generic_controller = VectorizedController(
-            num_states=sys.num_states, num_inputs=sys.num_inputs,
-            layer_sizes=layer_sizes,
-            nonlinearity_hidden=nonlinearity_hidden,
-            nonlinearity_output=nonlinearity_output,
-            initialization_std=initialization_std
-        )
-    elif controller_type == 'REN':
+    if controller_type == 'REN':
         assert not (n_xi is None or l is None or x_init is None or u_init is None)
         generic_controller = RENController(
             noiseless_forward=sys.noiseless_forward,
@@ -71,9 +59,9 @@ def get_controller(
             n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
             train_method='SVGD', initialization_std=initialization_std
         )
-    elif controller_type=='Linear':
-        generic_controller = LinearController(
-            num_states=sys.num_states, num_inputs=sys.num_inputs
+    elif controller_type=='Affine':
+        generic_controller = AffineController(
+            num_states=torch.zeros(sys.num_states), num_inputs=torch.zeros(sys.num_inputs)
         )
     else:
         raise NotImplementedError
@@ -82,7 +70,7 @@ def get_controller(
 # ---------- CONTROLLER ----------
 # can be removed
 from assistive_functions import to_tensor
-class affine_controller:
+class AffineController:
     def __init__(self, theta, bias=None):
         # theta is a tensor of shape = (num_inputs, num_states)
         self.theta = to_tensor(theta)
