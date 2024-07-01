@@ -2,40 +2,23 @@ import torch
 import torch.nn.functional as F
 from config import device
 from assistive_functions import to_tensor
+from . import LQLossFH
 
-
-def f_loss_states(t, x, xbar, Q=None):
-    if Q is None:
-        Q = torch.eye(x.shape[0]).to(device)
-    dx = x - xbar
-    xQx = F.linear(dx, Q) * dx
-    return xQx.sum()
-
-
-def f_loss_u(t, u):
-    loss_u = (u ** 2).sum()
-    return loss_u
-
-class LossRobots():
+class LossRobots(LQLossFH):
     def __init__(
         self, T, xbar, loss_bound, sat_bound,
-        n_agents=None, num_states=None, Q=None, alpha_u=1,
+        n_agents, Q, alpha_u=1,
         alpha_ca=None, alpha_obst=None, min_dist=None
     ):
-        self.T, self.xbar = T, xbar
-        self.Q, self.alpha_u = Q, alpha_u
-        self.n_agents, self.num_states = n_agents, num_states
+        super().__init__(Q=Q, R=alpha_u, T=T, loss_bound=loss_bound, sat_bound=sat_bound)
+        self.xbar = xbar # TODO
+        self.alpha_u = alpha_u # TODO
+        self.n_agents = n_agents
         self.alpha_ca, self.alpha_obst, self.min_dist = alpha_ca, alpha_obst, min_dist
-        self.loss_bound, self.sat_bound = loss_bound, sat_bound
-        if not self.loss_bound is None:
-            assert not self.sat_bound is None
-            self.loss_bound = to_tensor(self.loss_bound)
-        if not self.sat_bound is None:
-            assert not self.loss_bound is None
-            self.sat_bound = to_tensor(self.sat_bound)
+
         assert (self.alpha_ca is None and self.min_dist is None) or not (self.alpha_ca is None or self.min_dist is None)
         if not self.alpha_ca is None:
-            assert not (self.n_agents is None or self.num_states is None)
+            assert not self.n_agents is None
 
     def forward(self, x_log, u_log):
         (num_rollouts, T, _) = x_log.shape

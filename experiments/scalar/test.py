@@ -12,7 +12,7 @@ sys.path.append(BASE_DIR)
 from config import device
 print(device)
 from assistive_functions import *
-from experiments.scalar.loss_functions import LQLossFH
+from loss_functions import LQLossFH
 from controllers.abstract import get_controller, CLSystem
 from experiments.scalar.LTI_sys import LTI_system
 from inference_algs.distributions import GibbsPosterior, GibbsWrapperNF
@@ -58,8 +58,8 @@ loss_bound = 1
 sat_bound = torch.matmul(torch.matmul(torch.transpose(sys.x_init, 0, 1), Q), sys.x_init)
 if loss_bound is not None:
     logger.info('[INFO] bounding the loss to ' + str(loss_bound))
-lq_loss_bounded = LQLossFH(Q, R, T, loss_bound, sat_bound, logger=logger)
-lq_loss_original = LQLossFH(Q, R, T, None, None, logger=logger)
+lq_loss_bounded = LQLossFH(Q, R, T, loss_bound, sat_bound)
+lq_loss_original = LQLossFH(Q, R, T, None, None)
 
 # ------ 4. Gibbs temperature ------
 gibbs_lambda_star = (8 * S * math.log(1/epsilon))**0.5        # lambda for Gibbs

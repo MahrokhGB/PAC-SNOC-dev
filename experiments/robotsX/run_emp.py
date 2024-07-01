@@ -5,7 +5,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 sys.path.insert(1, BASE_DIR)
 
 from assistive_functions import WrapLogger
-from experiments.robotsX.loss_functions import LossRobots
+from loss_functions.robots_loss import LossRobots
 from experiments.robotsX.detect_collision import *
 from experiments.robotsX.plots import plot_trajectories
 

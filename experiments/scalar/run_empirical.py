@@ -6,7 +6,7 @@ sys.path.insert(1, BASE_DIR)
 
 from config import device
 from assistive_functions import WrapLogger
-from experiments.scalar.loss_functions import LQLossFH
+from loss_functions import LQLossFH
 from controllers.empirical_controller import *
 from experiments.scalar.LTI_sys import LTI_system
 from experiments.scalar.scalar_assistive_functions import load_data
@@ -41,8 +41,8 @@ loss_bound = 1
 sat_bound = torch.matmul(torch.matmul(torch.transpose(sys.x_init, 0, 1), Q), sys.x_init)
 if loss_bound is not None:
     logger.info('[INFO] bounding the loss to ' + str(loss_bound))
-lq_loss_bounded = LQLossFH(Q, R, T, loss_bound, sat_bound, logger=logger)
-lq_loss_original = LQLossFH(Q, R, T, None, None, logger=logger)
+lq_loss_bounded = LQLossFH(Q, R, T, loss_bound, sat_bound)
+lq_loss_original = LQLossFH(Q, R, T, None, None)
 
 # ------ 4. Empirical controller ------
 batch_size = 5

@@ -5,7 +5,7 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.robotsX.loss_functions import f_loss_obst
+from loss_functions.robots_loss import f_loss_obst
 
 
 def plot_trajectories(

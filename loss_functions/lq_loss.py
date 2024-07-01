@@ -1,9 +1,8 @@
 import torch
-from assistive_functions import to_tensor, WrapLogger
-
+from assistive_functions import to_tensor
 
 class LQLossFH():
-    def __init__(self, Q, R, T, loss_bound, sat_bound, logger=None):
+    def __init__(self, Q, R, T, loss_bound, sat_bound):
         if not isinstance(Q, torch.Tensor):
             Q = to_tensor(Q)
         if not isinstance(R, torch.Tensor):
@@ -20,15 +19,16 @@ class LQLossFH():
         if not self.sat_bound is None:
             assert not self.loss_bound is None
             self.sat_bound = to_tensor(self.sat_bound)
-        self.logger = WrapLogger(logger)
 
-    def forward(self, xs, us):
+    def forward(self, xs, us, xbar=None):
         '''
         compute loss
         Args:
             - xs: tensor of shape (S, T, num_states)
             - us: tensor of shape (S, T, num_inputs)
         '''
+        if xbar is not None:
+            xs = xs - xbar.repeat(xs.shape[0], 1, 1)
         # batch
         xs = xs.reshape(-1, self.T, self.num_states, 1)
         us = us.reshape(-1, self.T, self.num_inputs, 1)
