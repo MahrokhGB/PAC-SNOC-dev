@@ -23,45 +23,27 @@ class LQLossFH():
         self.logger = WrapLogger(logger)
 
     def forward(self, xs, us):
-        if not isinstance(xs, torch.Tensor):
-            xs = to_tensor(xs)
-        if not isinstance(us, torch.Tensor):
-            us = to_tensor(us)
-        (S, T, num_states) = xs.shape
-        assert self.T == T and self.num_states == num_states
-        (S, T, num_inputs) = us.shape
-        assert self.T == T and self.num_inputs == num_inputs and xs.shape[0] == us.shape[0]
-
-        for sample_num in range(S):
-            for time in range(T):
-                x = xs[sample_num, time, :].reshape(-1, 1)
-                u = us[sample_num, time, :].reshape(-1, 1)
-                xT = torch.transpose(x, 0, 1)
-                uT = torch.transpose(u, 0, 1)
-                xTQx = torch.matmul(torch.matmul(xT, self.Q), x)
-                uTRu = torch.matmul(torch.matmul(uT, self.R), u)
-                if xTQx[0,0] > 1e6:
-                    self.logger.info(
-                        '[WARN] xTQx too large at time {:3.0f} sample {:2.0f}'.format(time, sample_num)
-                    )
-                if uTRu[0,0] > 1e6:
-                    self.logger.info(
-                        '[WARN] uTRu too large at time {:3.0f} sample {:2.0f}'.format(time, sample_num)
-                    )
-                if time == 0:
-                    loss_val = xTQx[0,0] + uTRu[0,0]
-                else:
-                    loss_val = loss_val + xTQx[0,0] + uTRu[0,0]
-            # divide by horizon
-            loss_val = loss_val/T
-            # bound
-            if self.sat_bound is not None:
-                loss_val = torch.tanh(loss_val/self.sat_bound)
-            if self.loss_bound is not None:
-                loss_val = self.loss_bound * loss_val
-            if sample_num == 0:
-                loss_val_tot = loss_val
-            else:
-                loss_val_tot += loss_val
-        loss_val_tot = loss_val_tot/S
-        return loss_val_tot
+        '''
+        compute loss
+        Args:
+            - xs: tensor of shape (S, T, num_states)
+            - us: tensor of shape (S, T, num_inputs)
+        '''
+        # batch
+        xs = xs.reshape(-1, self.T, self.num_states, 1)
+        us = us.reshape(-1, self.T, self.num_inputs, 1)
+        # batched multiplication
+        xTQx = torch.matmul(torch.matmul(xs.transpose(-1, -2), self.Q), xs)         # shape = (S, T, 1, 1)
+        uTRu = torch.matmul(torch.matmul(us.transpose(-1, -2), self.R), us)         # shape = (S, T, 1, 1)
+        # average over the time horizon
+        loss_x = torch.sum(xTQx, 1) / self.T    # shape = (S, 1, 1)
+        loss_u = torch.sum(uTRu, 1) / self.T    # shape = (S, 1, 1)
+        loss_val = loss_x + loss_u
+        # bound
+        if self.sat_bound is not None:
+            loss_val = torch.tanh(loss_val/self.sat_bound)  # shape = (S, 1, 1)
+        if self.loss_bound is not None:
+            loss_val = self.loss_bound * loss_val           # shape = (S, 1, 1)
+        # verage over the samples
+        loss_val = torch.sum(loss_val, 0)/xs.shape[0]       # shape = (1, 1)
+        return loss_val

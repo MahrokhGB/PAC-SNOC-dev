@@ -12,7 +12,6 @@ from controllers.abstract import CLSystem, AffineController
 from assistive_functions import to_tensor, WrapLogger
 from controllers.REN_controller import RENController
 
-
 class GibbsPosterior():
 
     def __init__(
@@ -33,18 +32,6 @@ class GibbsPosterior():
         self._params = OrderedDict()
         self._param_dists = OrderedDict()
         # ------- set prior -------
-        if not 'type' in prior_dict.keys():
-            if 'type_b' in prior_dict.keys():
-                if prior_dict['type_b'].startswith('Gaussian'):
-                    prior_dict['type']='Gaussian'
-                elif prior_dict['type_b'].startswith('Uniform'):
-                    prior_dict['type']='Uniform'
-                else:
-                    raise NotImplementedError
-            else:
-                self.logger.info('[WARNING]: prior type not provided. Using Gaussian.')
-                prior_dict['type'] = 'Gaussian'
-
         # set prior for REN controller
         if isinstance(self.generic_cl_system.controller, RENController):
             for name, shape in self.generic_cl_system.controller.parameter_shapes().items():
@@ -67,7 +54,7 @@ class GibbsPosterior():
         elif isinstance(self.generic_cl_system.controller, AffineController):
             for name, shape in self.generic_cl_system.controller.parameter_shapes().items():
                 # Gaussian prior
-                if prior_dict['type'] == 'Gaussian':
+                if prior_dict['type_'+name[0]].startswith('Gaussian'):
                     if not (name+'_loc' in prior_dict.keys() or name+'_scale' in prior_dict.keys()):
                         self.logger.info('[WARNING]: prior for ' + name + ' was not provided. Replaced by default.')
                     dist = Normal(
@@ -75,16 +62,16 @@ class GibbsPosterior():
                         scale=prior_dict.get(name+'_scale', 1)*torch.ones(shape).flatten().to(device)
                     )
                 # Uniform prior
-                elif prior_dict['type'] == 'Uniform':
+                elif prior_dict['type_'+name[0]] == 'Uniform':
                     assert (name+'_low' in prior_dict.keys()) and (name+'_high' in prior_dict.keys())
                     dist = Uniform(
-                        low=prior_dict[name+'_low']*torch.ones(shape).to(device),
-                        high=prior_dict[name+'_high']*torch.ones(shape).to(device)
+                        low=prior_dict[name+'_low']*torch.ones(shape).flatten().to(device),
+                        high=prior_dict[name+'_high']*torch.ones(shape).flatten().to(device)
                     )
                 else:
                     raise NotImplementedError
                 # set dist
-                print(name, dist, dist.batch_shape)
+                print('Prior over '+ name + ':', dist)
                 self._param_dist(name, dist.to_event(1))
         else:
             raise NotImplementedError
@@ -127,7 +114,6 @@ class GibbsPosterior():
         if len(params.shape)==1:
             params = params.reshape(1, -1)
         L = params.shape[0]
-
         lpl = self._log_prob_likelihood(params, train_data)
         lpl = lpl.reshape(L)
         lpp = self._log_prob_prior(params)

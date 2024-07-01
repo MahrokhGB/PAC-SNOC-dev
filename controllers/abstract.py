@@ -2,6 +2,7 @@ import torch, sys
 from numpy import random
 from config import BASE_DIR
 sys.path.append(BASE_DIR)
+from config import device
 
 
 # The `CLSystem` class is a neural network module that performs multi-rollout simulations using a
@@ -55,8 +56,8 @@ def get_controller(
         )
     elif controller_type=='Affine':
         generic_controller = AffineController(
-            weight=torch.zeros(sys.num_inputs, sys.num_states),
-            bias=torch.zeros(sys.num_inputs, 1)
+            weight=torch.zeros(sys.num_inputs, sys.num_states, device=device, dtype=torch.float32),
+            bias=torch.zeros(sys.num_inputs, 1, device=device, dtype=torch.float32)
         )
     else:
         raise NotImplementedError
