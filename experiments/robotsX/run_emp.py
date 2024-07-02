@@ -89,7 +89,7 @@ loss_bound = 1
 sat_bound = torch.matmul(torch.matmul(x0.reshape(1, -1), Q), x0.reshape(-1, 1))
 bounded_loss_fn = None
 original_loss_fn = LossRobots(
-    T=t_end, Q=Q, alpha_u=alpha_u, xbar=xbar,
+    Q=Q, alpha_u=alpha_u, xbar=xbar,
     loss_bound=None, sat_bound=None,
     alpha_ca=alpha_ca, alpha_obst=alpha_obst,
     min_dist=min_dist if col_av else None,

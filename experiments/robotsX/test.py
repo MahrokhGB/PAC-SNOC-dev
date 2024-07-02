@@ -97,7 +97,7 @@ sat_bound += 0 if alpha_obst is None else alpha_obst
 sat_bound = sat_bound/20
 logger.info('Loss saturates at: '+str(sat_bound))
 bounded_loss_fn = LossRobots(
-    T=t_end, Q=Q, alpha_u=alpha_u, xbar=xbar,
+    Q=Q, alpha_u=alpha_u, xbar=xbar,
     loss_bound=loss_bound, sat_bound=sat_bound.to(device),
     alpha_ca=alpha_ca, alpha_obst=alpha_obst,
     min_dist=min_dist if col_av else None,
@@ -105,7 +105,7 @@ bounded_loss_fn = LossRobots(
     num_states=sys.num_states if col_av else None
 )
 original_loss_fn = LossRobots(
-    T=t_end, Q=Q, alpha_u=alpha_u, xbar=xbar,
+     Q=Q, alpha_u=alpha_u, xbar=xbar,
     loss_bound=None, sat_bound=None,
     alpha_ca=alpha_ca, alpha_obst=alpha_obst,
     min_dist=min_dist if col_av else None,

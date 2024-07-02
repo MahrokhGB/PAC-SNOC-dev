@@ -41,8 +41,8 @@ loss_bound = 1
 sat_bound = torch.matmul(torch.matmul(torch.transpose(sys.x_init, 0, 1), Q), sys.x_init)
 if loss_bound is not None:
     logger.info('[INFO] bounding the loss to ' + str(loss_bound))
-lq_loss_bounded = LQLossFH(Q, R, T, loss_bound, sat_bound)
-lq_loss_original = LQLossFH(Q, R, T, None, None)
+lq_loss_bounded = LQLossFH(Q, R, loss_bound, sat_bound)
+lq_loss_original = LQLossFH(Q, R, None, None)
 
 # ------ 4. Benchmark ------
 batch_size_bnc = 20

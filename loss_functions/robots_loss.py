@@ -6,65 +6,125 @@ from . import LQLossFH
 
 class LossRobots(LQLossFH):
     def __init__(
-        self, T, xbar, loss_bound, sat_bound,
+        self, xbar, loss_bound, sat_bound,
         n_agents, Q, alpha_u=1,
-        alpha_ca=None, alpha_obst=None, min_dist=None
+        alpha_ca=None, alpha_obst=None, min_dist=0.5,
+        obstacle_centers=None, obstacle_covs=None
     ):
-        super().__init__(Q=Q, R=alpha_u, T=T, loss_bound=loss_bound, sat_bound=sat_bound)
-        self.xbar = xbar # TODO
-        self.alpha_u = alpha_u # TODO
+        super().__init__(Q=Q, R=alpha_u, loss_bound=loss_bound, sat_bound=sat_bound, xbar=xbar)
         self.n_agents = n_agents
         self.alpha_ca, self.alpha_obst, self.min_dist = alpha_ca, alpha_obst, min_dist
-
         assert (self.alpha_ca is None and self.min_dist is None) or not (self.alpha_ca is None or self.min_dist is None)
         if not self.alpha_ca is None:
             assert not self.n_agents is None
+        # define obstacles
+        if obstacle_centers is None:
+            self.obstacle_centers = [
+                torch.tensor([[-2.5, 0]]).to(device),
+                torch.tensor([[2.5, 0.0]]).to(device),
+                torch.tensor([[-1.5, 0.0]]).to(device),
+                torch.tensor([[1.5, 0.0]]).to(device),
+            ]
+        else:
+            self.obstacle_centers = obstacle_centers
+        if obstacle_covs is None:
+            self.obstacle_covs = [
+                torch.tensor([[0.2, 0.2]]).to(device)
+            ] * len(self.obstacle_centers)
+        else:
+            self.obstacle_covs = obstacle_covs
 
-    def forward(self, x_log, u_log):
-        (num_rollouts, T, _) = x_log.shape
-        assert T == self.T and u_log.shape[1] == self.T and u_log.shape[0] == num_rollouts
-        loss_tot = 0
-        for rollout_num in range(num_rollouts):
-            loss_x, loss_u, loss_ca, loss_obst = 0, 0, 0, 0
-            for t in range(self.T):
-                loss_x += f_loss_states(
-                    t, x=x_log[rollout_num, t, :], xbar=self.xbar, Q=self.Q
-                )
-                loss_u += self.alpha_u * f_loss_u(t, u_log[rollout_num, t, :])
-                if not self.alpha_ca is None:
-                    loss_ca += self.alpha_ca * f_loss_ca(
-                        x=x_log[rollout_num, t, :], n_agents=self.n_agents,
-                        num_states=self.num_states, min_dist=self.min_dist
-                    )
-                if not self.alpha_obst is None:
-                    loss_obst += self.alpha_obst * f_loss_obst(x_log[rollout_num, t, :])
-            # divide by time horizon
-            loss_x, loss_u = loss_x/T, loss_u/T
-            loss_ca, loss_obst = loss_ca/T, loss_obst/T
-            # add
-            loss_val = loss_x + loss_u + loss_ca + loss_obst
-            # bound
-            if self.sat_bound is not None:
-                # LQ loss>=0, so, tanh(LQ loss) in [0,1]
-                loss_val = torch.tanh(loss_val/self.sat_bound)
-            if self.loss_bound is not None:
-                loss_val = self.loss_bound * loss_val
-            # add to total loss
-            loss_tot += loss_val
-        loss_tot = loss_tot/num_rollouts
-        return loss_tot
+    def forward(self, xs, us):
+        '''
+        compute loss
+        Args:
+            - xs: tensor of shape (S, T, num_states)
+            - us: tensor of shape (S, T, num_inputs)
+        '''
+        # batch
+        x_batch = xs.reshape(x_batch.shape[0], x_batch.shape[1], self.num_states, 1)
+        u_batch = us.reshape(x_batch.shape[0], x_batch.shape[1], self.num_inputs, 1)
+        # loss states = 1/T sum_{t=1}^T (x_t-xbar)^T Q (x_t-xbar)
+        if self.xbar is not None:
+            x_batch_centered = x_batch - self.xbar
+        else:
+            x_batch_centered = x_batch
+        xTQx = torch.matmul(
+            torch.matmul(x_batch_centered.transpose(-1, -2), self.Q),
+            x_batch_centered
+        )   # shape = (S, T, 1, 1)
+        loss_x = torch.sum(xTQx, 1) / x_batch.shape[1]    # average over the time horizon. shape = (S, 1, 1)
+        # loss control actions = 1/T sum_{t=1}^T u_t^T R u_t
+        uTRu = torch.matmul(
+            torch.matmul(u_batch.transpose(-1, -2), self.R),
+            u_batch
+        )   # shape = (S, T, 1, 1)
+        loss_u = torch.sum(uTRu, 1) / x_batch.shape[1]    # average over the time horizon. shape = (S, 1, 1)
+        # collision avoidance loss
+        if self.alpha_ca is None:
+            loss_ca = 0
+        else:
+            loss_ca = self.alpha_ca * self.f_loss_ca(x_batch)       # shape = (S, 1, 1)
+        # obstacle avoidance loss
+        if self.alpha_obst is None:
+            loss_obst = 0
+        else:
+            loss_obst = self.alpha_obst * self.f_loss_obst(x_batch) # shape = (S, 1, 1)
+        # sum up all losses
+        loss_val = loss_x + loss_u + loss_ca + loss_obst            # shape = (S, 1, 1)
+        # bound
+        if self.sat_bound is not None:
+            loss_val = torch.tanh(loss_val/self.sat_bound)  # shape = (S, 1, 1)
+        if self.loss_bound is not None:
+            loss_val = self.loss_bound * loss_val           # shape = (S, 1, 1)
+        # average over the samples
+        loss_val = torch.sum(loss_val, 0)/xs.shape[0]       # shape = (1, 1)
+        return loss_val
 
+    def f_loss_ca(self, x_batch):
+        '''
+        collision avoidance loss
+        Args:
+            - x_batched: tensor of shape (S, T, num_states, 1)
+                concatenated states of all agents on the third dimension.
+        '''
+        min_sec_dist = self.min_dist + 0.2
+        num_states_per_agent = int(x_batch.shape[2]/self.n_agents)
+        # collision avoidance:
+        x_agents = x_batch[:, :, 0::num_states_per_agent, :]  # start from 0, pick every num_states_per_agent. shape = (S, T, n_agents, 1)
+        y_agents = x_batch[:, :, 1::num_states_per_agent, :]  # start from 1, pick every num_states_per_agent. shape = (S, T, n_agents, 1)
+        deltaqx = x_agents.repeat(1, 1, self.n_agents, 1) - x_agents.repeat(1, 1, self.n_agents, 1).transpose(-2, -1)   # shape = (S, T, n_agents, n_agents)
+        deltaqy = y_agents.repeat(1, 1, self.n_agents, 1) - y_agents.repeat(1, 1, self.n_agents, 1).transpose(-2, -1)   # shape = (S, T, n_agents, n_agents)
+        distance_sq = deltaqx ** 2 + deltaqy ** 2                       # shape = (S, T, n_agents, n_agents)
+        mask = torch.logical_not(torch.eye(self.n_agents).to(device))   # shape = (n_agents, n_agents)
+        # add distances
+        loss_ca = (1/(distance_sq + 1e-3) * (distance_sq.detach() < (min_sec_dist ** 2)) * mask).sum((-1, -2))/2        # shape = (S, T)
+        # average over time steps
+        loss_ca = loss_ca.sum(1)/loss_ca.shape[1]
+        # reshape to S,1,1
+        loss_ca = loss_ca.reshape(-1,1,1)
+        return loss_ca
 
-def f_loss_ca(x, n_agents, num_states, min_dist=0.5):
-    min_sec_dist = min_dist + 0.2
-    # collision avoidance:
-    deltaqx = x[0::4].repeat(n_agents, 1) - x[0::4].repeat(n_agents, 1).transpose(0, 1)
-    deltaqy = x[1::4].repeat(n_agents, 1) - x[1::4].repeat(n_agents, 1).transpose(0, 1)
-    distance_sq = deltaqx ** 2 + deltaqy ** 2
-    mask = torch.logical_not(torch.eye(num_states // 4).to(device))
-    loss_ca = (1/(distance_sq + 1e-3) * (distance_sq.detach() < (min_sec_dist ** 2)) * mask).sum()/2
-    return loss_ca
-
+    def f_loss_obst(self, x_batched):
+        '''
+        obstacle avoidance loss
+        Args:
+            - x_batched: tensor of shape (S, T, num_states, 1)
+                concatenated states of all agents on the third dimension.
+        '''
+        qx = x_batched[:, :, 0::4, :]   # x of all agents. shape = (S, T, n_agents, 1)
+        qy = x_batched[:, :, 1::4, :]   # y of all agents. shape = (S, T, n_agents, 1)
+        # batched over all samples and all times of [x agent 1, y agent 1, ..., x agent n, y agent n]
+        q = torch.cat((qx,qy), dim=-1).view(x_batched.shape[0], x_batched.shape[1], 1,-1).squeeze(dim=2)    # shape = (S, T, 2*n_agents)
+        # sum up loss due to each obstacle
+        for ind, (center, cov) in enumerate(zip(self.obstacle_centers, self.obstacle_covs)):
+            if ind == 0:
+                loss_obst = normpdf(q, mu=center, cov=cov)  # shape = (S, T)
+            else:
+                loss_obst += normpdf(q, mu=center, cov=cov) # shape = (S, T)
+        # average over time steps
+        loss_obst = loss_obst.sum(1) / loss_obst.shape[1]   # shape = (S)
+        return loss_obst.reshape(-1, 1, 1)
 
 def normpdf(q, mu, cov):
     d = 2
@@ -78,24 +138,6 @@ def normpdf(q, mu, cov):
         num = torch.exp((-0.5 * (qi - mu)**2 / cov).sum())
         out = out + num/den
     return out
-
-
-def f_loss_obst(x, sys=None):
-    qx = x[::4].unsqueeze(1)
-    qy = x[1::4].unsqueeze(1)
-    q = torch.cat((qx,qy), dim=1).view(1,-1).squeeze()
-    mu1 = torch.tensor([[-2.5, 0]]).to(device)
-    mu2 = torch.tensor([[2.5, 0.0]]).to(device)
-    mu3 = torch.tensor([[-1.5, 0.0]]).to(device)
-    mu4 = torch.tensor([[1.5, 0.0]]).to(device)
-    cov = torch.tensor([[0.2, 0.2]]).to(device)
-    Q1 = normpdf(q, mu=mu1, cov=cov)
-    Q2 = normpdf(q, mu=mu2, cov=cov)
-    Q3 = normpdf(q, mu=mu3, cov=cov)
-    Q4 = normpdf(q, mu=mu4, cov=cov)
-
-    return (Q1 + Q2 + Q3 + Q4).sum()
-
 
 def f_loss_side(x):
     qx = x[::4]

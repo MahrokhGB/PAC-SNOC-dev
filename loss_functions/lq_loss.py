@@ -2,16 +2,14 @@ import torch
 from assistive_functions import to_tensor
 
 class LQLossFH():
-    def __init__(self, Q, R, T, loss_bound, sat_bound):
-        if not isinstance(Q, torch.Tensor):
-            Q = to_tensor(Q)
-        if not isinstance(R, torch.Tensor):
-            R = to_tensor(R)
-        self.num_states = Q.shape[0]
-        assert Q.shape == (self.num_states, self.num_states)
-        self.num_inputs = R.shape[0]
-        assert R.shape == (self.num_inputs, self.num_inputs)
-        self.Q, self.R, self.T = Q, R, T
+    def __init__(self, Q, R, loss_bound, sat_bound, xbar=None):
+        self.Q, self.R = Q, R
+        self.Q = to_tensor(self.Q)
+        self.R = to_tensor(self.R)
+        assert len(self.Q.shape)==2 and self.Q.shape[0] == self.Q.shape[1]
+        assert len(self.R.shape) in [0, 2]  # int or square matrix
+        if len(self.R.shape)==2:
+            assert self.R.shape[0] == self.R.shape[1]
         self.loss_bound, self.sat_bound = loss_bound, sat_bound
         if not self.loss_bound is None:
             assert not self.sat_bound is None
@@ -19,31 +17,34 @@ class LQLossFH():
         if not self.sat_bound is None:
             assert not self.loss_bound is None
             self.sat_bound = to_tensor(self.sat_bound)
+        self.xbar = xbar
+        if not self.xbar is None:
+            self.xbar = to_tensor(self.xbar)
 
-    def forward(self, xs, us, xbar=None):
+    def forward(self, xs, us):
         '''
         compute loss
         Args:
             - xs: tensor of shape (S, T, num_states)
             - us: tensor of shape (S, T, num_inputs)
         '''
-        if xbar is not None:
-            xs = xs - xbar.repeat(xs.shape[0], 1, 1)
+        if self.xbar is not None:
+            xs = xs - self.xbar.repeat(xs.shape[0], 1, 1)
         # batch
-        xs = xs.reshape(-1, self.T, self.num_states, 1)
-        us = us.reshape(-1, self.T, self.num_inputs, 1)
+        xs = xs.reshape(xs.shape[0], xs.shape[1], self.num_states, 1)
+        us = us.reshape(us.shape[0], us.shape[1], self.num_inputs, 1)
         # batched multiplication
         xTQx = torch.matmul(torch.matmul(xs.transpose(-1, -2), self.Q), xs)         # shape = (S, T, 1, 1)
         uTRu = torch.matmul(torch.matmul(us.transpose(-1, -2), self.R), us)         # shape = (S, T, 1, 1)
         # average over the time horizon
-        loss_x = torch.sum(xTQx, 1) / self.T    # shape = (S, 1, 1)
-        loss_u = torch.sum(uTRu, 1) / self.T    # shape = (S, 1, 1)
+        loss_x = torch.sum(xTQx, 1) / xs.shape[1]    # shape = (S, 1, 1)
+        loss_u = torch.sum(uTRu, 1) / us.shape[1]    # shape = (S, 1, 1)
         loss_val = loss_x + loss_u
         # bound
         if self.sat_bound is not None:
             loss_val = torch.tanh(loss_val/self.sat_bound)  # shape = (S, 1, 1)
         if self.loss_bound is not None:
             loss_val = self.loss_bound * loss_val           # shape = (S, 1, 1)
-        # verage over the samples
+        # average over the samples
         loss_val = torch.sum(loss_val, 0)/xs.shape[0]       # shape = (1, 1)
         return loss_val
