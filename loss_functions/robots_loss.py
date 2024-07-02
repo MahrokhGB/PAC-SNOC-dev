@@ -1,7 +1,5 @@
 import torch
-import torch.nn.functional as F
 from config import device
-from assistive_functions import to_tensor
 from . import LQLossFH
 
 class LossRobots(LQLossFH):
@@ -42,8 +40,8 @@ class LossRobots(LQLossFH):
             - us: tensor of shape (S, T, num_inputs)
         '''
         # batch
-        x_batch = xs.reshape(x_batch.shape[0], x_batch.shape[1], self.num_states, 1)
-        u_batch = us.reshape(x_batch.shape[0], x_batch.shape[1], self.num_inputs, 1)
+        x_batch = xs.reshape(*xs.shape, 1)
+        u_batch = us.reshape(*us.shape, 1)
         # loss states = 1/T sum_{t=1}^T (x_t-xbar)^T Q (x_t-xbar)
         if self.xbar is not None:
             x_batch_centered = x_batch - self.xbar
@@ -55,8 +53,8 @@ class LossRobots(LQLossFH):
         )   # shape = (S, T, 1, 1)
         loss_x = torch.sum(xTQx, 1) / x_batch.shape[1]    # average over the time horizon. shape = (S, 1, 1)
         # loss control actions = 1/T sum_{t=1}^T u_t^T R u_t
-        uTRu = torch.matmul(
-            torch.matmul(u_batch.transpose(-1, -2), self.R),
+        uTRu = self.R * torch.matmul(
+            u_batch.transpose(-1, -2),
             u_batch
         )   # shape = (S, T, 1, 1)
         loss_u = torch.sum(uTRu, 1) / x_batch.shape[1]    # average over the time horizon. shape = (S, 1, 1)
@@ -93,8 +91,8 @@ class LossRobots(LQLossFH):
         # collision avoidance:
         x_agents = x_batch[:, :, 0::num_states_per_agent, :]  # start from 0, pick every num_states_per_agent. shape = (S, T, n_agents, 1)
         y_agents = x_batch[:, :, 1::num_states_per_agent, :]  # start from 1, pick every num_states_per_agent. shape = (S, T, n_agents, 1)
-        deltaqx = x_agents.repeat(1, 1, self.n_agents, 1) - x_agents.repeat(1, 1, self.n_agents, 1).transpose(-2, -1)   # shape = (S, T, n_agents, n_agents)
-        deltaqy = y_agents.repeat(1, 1, self.n_agents, 1) - y_agents.repeat(1, 1, self.n_agents, 1).transpose(-2, -1)   # shape = (S, T, n_agents, n_agents)
+        deltaqx = x_agents.repeat(1, 1, 1, self.n_agents) - x_agents.repeat(1, 1, 1, self.n_agents).transpose(-2, -1)   # shape = (S, T, n_agents, n_agents)
+        deltaqy = y_agents.repeat(1, 1, 1, self.n_agents) - y_agents.repeat(1, 1, 1, self.n_agents).transpose(-2, -1)   # shape = (S, T, n_agents, n_agents)
         distance_sq = deltaqx ** 2 + deltaqy ** 2                       # shape = (S, T, n_agents, n_agents)
         mask = torch.logical_not(torch.eye(self.n_agents).to(device))   # shape = (n_agents, n_agents)
         # add distances
@@ -127,16 +125,24 @@ class LossRobots(LQLossFH):
         return loss_obst.reshape(-1, 1, 1)
 
 def normpdf(q, mu, cov):
+    '''
+    Args:
+        - q: shape(S, T, num_states_per_agent)
+    '''
     d = 2
     mu = mu.view(1, d)
     cov = cov.view(1, d)  # the diagonal of the covariance matrix
-    qs = torch.split(q, 2)
-    out = torch.tensor(0).to(device)
-    for qi in qs:
+    qs = torch.split(q, 2, dim=-1)
+    # out = torch.tensor(0).to(device)
+    for ind, qi in enumerate(qs):
         # if qi[1]<1.5 and qi[1]>-1.5:
         den = (2*torch.pi)**(0.5*d) * torch.sqrt(torch.prod(cov))
-        num = torch.exp((-0.5 * (qi - mu)**2 / cov).sum())
-        out = out + num/den
+        nom = torch.exp((-0.5 * (qi - mu)**2 / cov).sum(-1))
+        # out = out + num/den
+        if ind==0:
+            out = nom/den
+        else:
+            out += nom/den
     return out
 
 def f_loss_side(x):

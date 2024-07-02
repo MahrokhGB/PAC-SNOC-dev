@@ -7,9 +7,7 @@ class LQLossFH():
         self.Q = to_tensor(self.Q)
         self.R = to_tensor(self.R)
         assert len(self.Q.shape)==2 and self.Q.shape[0] == self.Q.shape[1]
-        assert len(self.R.shape) in [0, 2]  # int or square matrix
-        if len(self.R.shape)==2:
-            assert self.R.shape[0] == self.R.shape[1]
+        assert (not hasattr(self.R, "__len__")) or len(self.R.shape)==2  # int or square matrix
         self.loss_bound, self.sat_bound = loss_bound, sat_bound
         if not self.loss_bound is None:
             assert not self.sat_bound is None
@@ -20,6 +18,7 @@ class LQLossFH():
         self.xbar = xbar
         if not self.xbar is None:
             self.xbar = to_tensor(self.xbar)
+            self.xbar = self.xbar.reshape(self.Q.shape[0], 1)
 
     def forward(self, xs, us):
         '''
@@ -31,8 +30,8 @@ class LQLossFH():
         if self.xbar is not None:
             xs = xs - self.xbar.repeat(xs.shape[0], 1, 1)
         # batch
-        xs = xs.reshape(xs.shape[0], xs.shape[1], self.num_states, 1)
-        us = us.reshape(us.shape[0], us.shape[1], self.num_inputs, 1)
+        xs = xs.reshape(*xs.shape, 1)
+        us = us.reshape(*us.shape, 1)
         # batched multiplication
         xTQx = torch.matmul(torch.matmul(xs.transpose(-1, -2), self.Q), xs)         # shape = (S, T, 1, 1)
         uTRu = torch.matmul(torch.matmul(us.transpose(-1, -2), self.R), us)         # shape = (S, T, 1, 1)

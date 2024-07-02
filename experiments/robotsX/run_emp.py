@@ -94,7 +94,6 @@ original_loss_fn = LossRobots(
     alpha_ca=alpha_ca, alpha_obst=alpha_obst,
     min_dist=min_dist if col_av else None,
     n_agents=sys.n_agents if col_av else None,
-    num_states=sys.num_states if col_av else None
 )
 
 # define the controller
