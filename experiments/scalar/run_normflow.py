@@ -21,7 +21,7 @@ from experiments.scalar.scalar_assistive_functions import load_data
 random_seed = 33
 random_state = np.random.RandomState(random_seed)
 # ----- save and log directory -----
-now = datetime.now().strftime("%m_%d_%H_%Ms")
+now = datetime.now().strftime("%m_%d_%H_%M")
 save_path = os.path.join(BASE_DIR, 'experiments', 'scalar', 'saved_results')
 save_folder = os.path.join(save_path, 'normflows_'+now)
 os.makedirs(save_folder)

@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
 
-from assistive_functions import WrapLogger, _check_data_dim
+from assistive_functions import check_data_dim
 from config import device
 
 
@@ -95,8 +95,8 @@ class PsiU(nn.Module):
 
     def forward(self, t, w, xi):
         # w and xi must be of shape (batch_size, 1, num_states)
-        w = _check_data_dim(w, (1, self.num_states))
-        xi = _check_data_dim(xi, (1, self.n_xi))
+        w = check_data_dim(w, (1, self.num_states))
+        xi = check_data_dim(xi, (1, self.n_xi))
         # batch size of w and xi must match
         batch_size = w.shape[0]
         assert batch_size==xi.shape[0], 'batch size mismatch between w and xi.'
@@ -140,13 +140,12 @@ class RENController(nn.Module):
         self, noiseless_forward, num_states, num_inputs,
         n_xi, l, x_init, u_init, initialization_std,
         output_amplification,
-        train_method='empirical', logger=None
+        train_method='empirical'
     ):
         super().__init__()
         assert train_method in ['empirical', 'SVGD']
         self.num_states = num_states
         self.num_inputs = num_inputs
-        self.logger = WrapLogger(logger)
         self.output_amplification = output_amplification
         # define the REN
         self.psi_u = PsiU(
@@ -254,9 +253,6 @@ class RENController(nn.Module):
                 raise NotImplementedError
             idx = idx_next
         assert idx_next == value.shape[-1]
-
-    def print_params(self):
-        self.logger.info(self.named_parameters())
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)

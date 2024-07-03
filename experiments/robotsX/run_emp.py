@@ -5,6 +5,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 sys.path.insert(1, BASE_DIR)
 
 from assistive_functions import WrapLogger
+from controllers.abstract import get_controller
 from loss_functions.robots_loss import LossRobots
 from experiments.robotsX.detect_collision import *
 from experiments.robotsX.plots import plot_trajectories
@@ -24,7 +25,7 @@ exp_name = 'robotsX'
 exp_name += '_col_av' if col_av else ''
 exp_name += '_obstacle' if obstacle else ''
 exp_name += '_lin' if is_linear else '_nonlin'
-now = datetime.now().strftime("%m_%d_%H_%Ms")
+now = datetime.now().strftime("%m_%d_%H_%M")
 
 file_path = os.path.join(BASE_DIR, 'log')
 path_exist = os.path.exists(file_path)
@@ -98,11 +99,11 @@ original_loss_fn = LossRobots(
 
 # define the controller
 initialization_std = 0.1
-ctl = RENController(
-    sys.noiseless_forward, num_states=sys.num_states,
-    num_inputs=sys.num_inputs, logger=logger, output_amplification=20,
-    n_xi=n_xi, l=l, x_init=sys.x_init, u_init=sys.u_init,
-    initialization_std=initialization_std, train_method='empirical',
+ctl = get_controller(
+    controller_type='REN', sys=sys,
+    # REN controller
+    n_xi=n_xi, l=l, initialization_std=initialization_std,
+    train_method='empirical', output_amplification=20
 )
 
 # setup optimizer

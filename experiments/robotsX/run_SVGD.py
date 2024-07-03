@@ -7,6 +7,7 @@ sys.path.insert(1, BASE_DIR)
 
 from assistive_functions import WrapLogger
 from loss_functions.robots_loss import LossRobots
+from controllers.abstract import get_controller
 from controllers.SVGD_controller import SVGDCont
 from experiments.robotsX.detect_collision import *
 
@@ -30,7 +31,7 @@ exp_name = 'robotsX'
 exp_name += '_col_av' if col_av else ''
 exp_name += '_obstacle' if obstacle else ''
 exp_name += '_lin' if is_linear else '_nonlin'
-now = datetime.now().strftime("%m_%d_%H_%Ms")
+now = datetime.now().strftime("%m_%d_%H_%M")
 
 file_path = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results', 'log')
 path_exist = os.path.exists(file_path)
@@ -153,11 +154,11 @@ svgd_cont = SVGDCont(
     n_xi=n_xi, l=l, x_init=sys.x_init, u_init=sys.u_init, controller_type='REN',
 )
 # define a generic controller
-ctl_generic = RENController(
-    sys.noiseless_forward, num_states=sys.num_states,
-    initialization_std=initialization_std, output_amplification=20,
-    num_inputs=sys.num_inputs, train_method='SVGD',
-    n_xi=n_xi, l=l, x_init=sys.x_init, u_init=sys.u_init
+ctl_generic = get_controller(
+    controller_type='REN', sys=sys,
+    # REN controller
+    n_xi=n_xi, l=l, initialization_std=initialization_std,
+    train_method='SVGD', output_amplification=20
 )
 
 # ------------ 3. Training ------------

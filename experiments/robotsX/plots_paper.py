@@ -8,8 +8,8 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 sys.path.insert(1, BASE_DIR)
 
 from config import device
+from controllers.abstract import get_controller
 from experiments.robotsX.robots_sys import SystemRobots
-from controllers.REN_controller import RENController
 from experiments.robotsX.plots import plot_trajectories
 
 random_seed = 5
@@ -79,11 +79,11 @@ sys = SystemRobots(
 
 # define a zero controller
 if plot_zero_c:
-    ctl_zero = RENController(
-        sys.noiseless_forward, num_states=sys.num_states,
-        num_inputs=sys.num_inputs, output_amplification=0,
-        n_xi=1, l=1, x_init=sys.x_init, u_init=sys.u_init,
-        initialization_std=0, train_method='empirical',
+    ctl_zero = get_controller(
+        controller_type='REN', sys=sys,
+        # REN controller
+        n_xi=1, l=1, initialization_std=0,
+        train_method='empirical', output_amplification=0
     )
 
 model_keys = ['X_vec', 'Y_vec', 'B2_vec', 'C2_vec', 'D21_vec', 'D22_vec', 'D12_vec']
@@ -99,11 +99,11 @@ if plot_emp_c:
     assert num_rollouts == res_dict['num_rollouts']
     n_xi, l = res_dict['n_xi'], res_dict['l']
     initialization_std = res_dict['initialization_std']
-    ctl_emp = RENController(
-        sys.noiseless_forward, num_states=sys.num_states,
-        num_inputs=sys.num_inputs, output_amplification=20,
-        n_xi=n_xi, l=l, x_init=sys.x_init, u_init=sys.u_init,
-        initialization_std=initialization_std, train_method='empirical',
+    ctl_emp = get_controller(
+        controller_type='REN', sys=sys,
+        # REN controller
+        n_xi=n_xi, l=l, initialization_std=initialization_std,
+        train_method='empirical', output_amplification=20
     )
     for model_key in model_keys:
         ctl_emp.set_parameter(model_key, res_dict[model_key])
@@ -120,12 +120,11 @@ if plot_svgd_c:
         filename_model = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results', 'trained_models', f_model)
         res_dict_particle = torch.load(filename_model, map_location=torch.device(device))
         n_xi, l = res_dict_particle['n_xi'], res_dict_particle['l']
-        ctl_svgd[p] = RENController(
-            sys.noiseless_forward, num_states=sys.num_states,
-            num_inputs=sys.num_inputs, output_amplification=20,
-            n_xi=n_xi, l=l, x_init=sys.x_init, u_init=sys.u_init,
-            initialization_std=res_dict_particle['initialization_std'],
-            train_method='SVGD',
+        ctl_svgd[p] = get_controller(
+            controller_type='REN', sys=sys,
+            # REN controller
+            n_xi=n_xi, l=l, initialization_std=res_dict_particle['initialization_std'],
+            train_method='SVGD', output_amplification=20
         )
         # Set state dict
         for model_key in model_keys:

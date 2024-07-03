@@ -2,7 +2,7 @@ import torch, copy
 import torch.nn.functional as F
 
 from config import device
-from assistive_functions import to_tensor, _check_data_dim
+from assistive_functions import to_tensor, check_data_dim
 
 
 class SystemRobots(torch.nn.Module):
@@ -65,8 +65,8 @@ class SystemRobots(torch.nn.Module):
 
     def noiseless_forward(self, t, x, u):
         # check sizes
-        x = _check_data_dim(x, vec_dim=(1, self.num_states))
-        u = _check_data_dim(u, vec_dim=(1, self.num_inputs))
+        x = check_data_dim(x, vec_dim=(1, self.num_states))
+        u = check_data_dim(u, vec_dim=(1, self.num_inputs))
         batch_size = x.shape[0]
         assert batch_size==u.shape[0], 'batch sizes of x and u are different.'
 
@@ -81,9 +81,9 @@ class SystemRobots(torch.nn.Module):
 
     def forward(self, t, x, u, w):
         # check sizes
-        x = _check_data_dim(x, vec_dim=(1, self.num_states))
-        u = _check_data_dim(u, vec_dim=(1, self.num_inputs))
-        w = _check_data_dim(w, vec_dim=(1, self.num_states))
+        x = check_data_dim(x, vec_dim=(1, self.num_states))
+        u = check_data_dim(u, vec_dim=(1, self.num_inputs))
+        w = check_data_dim(w, vec_dim=(1, self.num_states))
         batch_size = x.shape[0]
         assert batch_size==u.shape[0], 'batch sizes of x and u are different.'
         assert batch_size==w.shape[0], 'batch sizes of w and u are different.'
@@ -104,7 +104,7 @@ class SystemRobots(torch.nn.Module):
         data = to_tensor(data)
         if len(data.shape) == 1:
             data = torch.reshape(data, (-1, 1))
-        data = _check_data_dim(data, vec_dim=(None, self.num_states))
+        data = check_data_dim(data, vec_dim=(None, self.num_states))
         batch_size, T = data.shape[0], data.shape[1]
         assert data.shape[-1] == self.num_states
 

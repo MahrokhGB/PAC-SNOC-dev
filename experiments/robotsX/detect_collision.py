@@ -4,7 +4,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 sys.path.append(BASE_DIR)
 
 from experiments.robotsX.robots_sys import SystemRobots
-from controllers.REN_controller import RENController
+from controllers.abstract import get_controller
 from config import device
 
 
@@ -86,12 +86,11 @@ if __name__ == "__main__":
     print('Loading ' + f_model)
     filename_model = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results', 'trained_models', f_model)
     res_dict_particle = torch.load(filename_model)
-    ctl_svgd = RENController(
-        sys.noiseless_forward, num_states=sys.num_states,
-        num_inputs=sys.num_inputs, output_amplification=20,
-        n_xi=n_xi, l=l, x_init=sys.x_init, u_init=sys.u_init,
-        initialization_std=res_dict_particle['initialization_std'],
-        train_method='SVGD',
+    ctl_svgd = get_controller(
+        controller_type='REN', sys=sys,
+        # REN controller
+        n_xi=n_xi, l=l, initialization_std=res_dict_particle['initialization_std'],
+        train_method='SVGD', output_amplification=20
     )
     # Set state dict
     model_keys = ['X_vec', 'Y_vec', 'B2_vec', 'C2_vec', 'D21_vec', 'D22_vec', 'D12_vec']

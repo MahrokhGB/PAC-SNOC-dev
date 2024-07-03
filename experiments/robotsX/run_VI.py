@@ -31,7 +31,7 @@ exp_name = 'robotsX'
 exp_name += '_col_av' if col_av else ''
 exp_name += '_obstacle' if obstacle else ''
 exp_name += '_lin' if is_linear else '_nonlin'
-now = datetime.now().strftime("%m_%d_%H_%Ms")
+now = datetime.now().strftime("%m_%d_%H_%M")
 
 file_path = os.path.join(BASE_DIR, 'log')
 path_exist = os.path.exists(file_path)

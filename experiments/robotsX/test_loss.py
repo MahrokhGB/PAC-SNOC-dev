@@ -26,7 +26,7 @@ exp_name = 'robotsX'
 exp_name += '_col_av' if col_av else ''
 exp_name += '_obstacle' if obstacle else ''
 exp_name += '_lin' if is_linear else '_nonlin'
-now = datetime.now().strftime("%m_%d_%H_%Ms")
+now = datetime.now().strftime("%m_%d_%H_%M")
 
 file_path = os.path.join(BASE_DIR, 'log')
 path_exist = os.path.exists(file_path)
@@ -95,12 +95,12 @@ old_bounded_loss_fn = OldLossRobots(
 # test loss time
 
 print('\n\n\n------ average time for computing robots loss ------')
-repeats = 10
+repeats = 3
 times_new = [None]*repeats
 times_old = [None]*repeats
-x = torch.rand(num_rollouts, t_end, n_agents*4).to(device)
-u = torch.rand(num_rollouts, t_end, 2).to(device)
-for size in np.logspace(3, 12, num=10, base=2):
+x = torch.rand(512, t_end, n_agents*4).to(device)
+u = torch.rand(512, t_end, 2).to(device)
+for size in np.logspace(3, 9, num=7, base=2):
     for num in range(repeats):
         # loss new
         t = time.time()
@@ -115,13 +115,3 @@ for size in np.logspace(3, 12, num=10, base=2):
 
     print('Dataset with %i samples: ' % int(size) + ' new loss = %f' % (sum(times_new)/len(times_new)) + ' old loss = %f' % (sum(times_old)/len(times_old)))
 
-
-print('\n\n\n------ OLD robots loss time ------')
-
-
-for size in np.logspace(3, 12, num=10, base=2):
-    t = time.time()
-    for num in range(repeats):
-
-        t = time.time()
-    print('Dataset with %i samples: ' % int(size) + 'average time = %f' % (sum(times)/len(times)))

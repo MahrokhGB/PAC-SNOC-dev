@@ -43,16 +43,17 @@ from controllers.REN_controller import RENController
 def get_controller(
     controller_type, sys,
     # REN controller
-    n_xi=None, l=None, x_init=None, u_init=None, initialization_std=None,
+    n_xi=None, l=None, initialization_std=None,
+    train_method='SVGD', output_amplification=20
 ):
     if controller_type == 'REN':
-        assert not (n_xi is None or l is None or x_init is None or u_init is None)
+        assert not (n_xi is None or l is None)
         generic_controller = RENController(
             noiseless_forward=sys.noiseless_forward,
-            output_amplification=20,
+            output_amplification=output_amplification,
             num_states=sys.num_states, num_inputs=sys.num_inputs,
-            n_xi=n_xi, l=l, x_init=x_init, u_init=u_init,
-            train_method='SVGD', initialization_std=initialization_std
+            n_xi=n_xi, l=l, x_init=sys.x_init, u_init=sys.u_init,
+            train_method=train_method, initialization_std=initialization_std
         )
     elif controller_type=='Affine':
         generic_controller = AffineController(

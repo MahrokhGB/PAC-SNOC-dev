@@ -49,7 +49,7 @@ def plot_rect(theta, bias, theta_grid, bias_grid, ax, label, color):
     return
 
 
-def _check_data_dim(x, vec_dim):
+def check_data_dim(x, vec_dim):
     # make sure the first dimension is batch_size
     if len(x.shape)==len(vec_dim)+1:
         for d_ind, d in enumerate(vec_dim):
