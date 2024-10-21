@@ -7,8 +7,9 @@ import matplotlib.pyplot as plt
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(1, BASE_DIR)
 
+from plants import SystemRobots, RobotsDataset
 from assistive_functions import WrapLogger
-from loss_functions.robots_loss import LossRobots
+from loss_functions.robots_loss import RobotsLoss
 from inference_algs.distributions import GibbsPosterior, GibbsWrapperNF
 from experiments.robotsX.detect_collision import *
 
@@ -17,92 +18,83 @@ from experiments.robotsX.detect_collision import *
 Tunable params: epsilon, prior_std, num_particles
 """
 
-random_seed = 5
-torch.manual_seed(random_seed)
-torch.cuda.manual_seed(random_seed)
-
-# ------ EXPERIMENT ------
-col_av = True
-obstacle = True
-is_linear = False
-fname = None     # set to None to be set automatically
-# -----------------------
-
 # ----- SET UP LOGGER -----
-exp_name = 'robotsX'
-exp_name += '_col_av' if col_av else ''
-exp_name += '_obstacle' if obstacle else ''
-exp_name += '_lin' if is_linear else '_nonlin'
-
-now = datetime.now().strftime("%m_%d_%H_%M")
-save_path = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results')
-save_folder = os.path.join(save_path, 'normflows_'+now)
+now = datetime.now().strftime("%m_%d_%H_%M_%S")
+save_path = os.path.join(BASE_DIR, 'experiments', 'minimal_example', 'saved_results')
+save_folder = os.path.join(save_path, 'ren_controller_'+now)
 os.makedirs(save_folder)
-# logger
 logging.basicConfig(filename=os.path.join(save_folder, 'log'), format='%(asctime)s %(message)s', filemode='w')
-logger = logging.getLogger('normflows')
+logger = logging.getLogger('ren_controller_')
 logger.setLevel(logging.DEBUG)
 logger = WrapLogger(logger)
 
+# ----- parse and set experiment arguments -----
+args = argument_parser()
+msg = print_args(args)
+logger.info(msg)
+torch.manual_seed(args.random_seed)
 
 # ------------ 1. Dataset ------------
+dataset = RobotsDataset(random_seed=args.random_seed, horizon=args.horizon, std_ini=args.std_init_plant, n_agents=2)
+# divide to train and test
+train_data = dataset.train_data_full[:args.num_rollouts, :, :]
+test_data = dataset.test_data
+# data for plots
+t_ext = args.horizon * 4
+plot_data = torch.zeros(1, t_ext, train_data.shape[-1], device=device)
+plot_data[:, 0, :] = (dataset.x0.detach() - dataset.xbar)
+plot_data = plot_data.to(device)
+# batch the data
+train_dataloader = DataLoader(train_data, batch_size=64, shuffle=True)
 
-num_rollouts = 30
-t_end = 100
-std_ini = 0.2
-n_agents = 2
-file_path = os.path.join(BASE_DIR, 'experiments', 'robotsX', 'saved_results')
-filename_data = 'data_T'+str(t_end)+'_stdini'+str(std_ini)+'_agents'+str(n_agents)+'_RS'+str(random_seed)+'.pkl'
-filename_data = os.path.join(file_path, filename_data)
-if not os.path.isfile(filename_data):
-    print(filename_data + " does not exists.")
-    print("Need to generate data!")
-assert os.path.isfile(filename_data)
-filehandler = open(filename_data, 'rb')
-data_saved = pickle.load(filehandler)
-filehandler.close()
-x0 = data_saved['x0'].to(device)
-xbar = data_saved['xbar'].to(device)
+# ------------ 2. Plant ------------
+plant_input_init = None     # all zero
+plant_state_init = None     # same as xbar
+sys = SystemRobots(
+    xbar=dataset.xbar, x_init=plant_state_init,
+    u_init=plant_input_init, linearize_plant=args.linearize_plant, k=args.spring_const
+)
 
-train_data = data_saved['train_data_full'][:num_rollouts, :, :].to(device)
-assert train_data.shape[0] == num_rollouts
-test_data = data_saved['test_data'].to(device)
+# ------------ 3. Controller ------------
+ctl = RENController(
+    noiseless_forward=sys.noiseless_forward,
+    input_init=sys.x_init, output_init=sys.u_init,
+    dim_internal=args.dim_internal, l=args.l,
+    initialization_std=args.cont_init_std,
+    output_amplification=20,
+)
+# plot closed-loop trajectories before training the controller
+logger.info('Plotting closed-loop trajectories before training the controller...')
+x_log, _, u_log = sys.rollout(ctl, plot_data)
+filename = os.path.join(save_folder, 'CL_init.pdf')
+plot_trajectories(
+    x_log[0, :, :], # remove extra dim due to batching
+    dataset.xbar, sys.n_agents, filename=filename, text="CL - before training", T=t_ext
+)
 
-# ------------ 2. Parameters and hyperparameters ------------
-
-# ------ 2.1. define the plant ------
-k = 1.0
-# Set initial values of variables in the loop
-u_init = None   # all zero
-x_init = None   # same as xbar
-sys = SystemRobots(xbar, x_init=x_init, u_init=u_init, k=k, is_linear=is_linear)
-
-# ------ 2.2. define the loss ------
-Q = torch.kron(torch.eye(n_agents), torch.eye(4)).to(device)
-alpha_u = 0.1/400 if col_av else 1/400
-alpha_ca = 100 if col_av else None
-alpha_obst = 5e3 if obstacle else None
-min_dist = 1.
+# ------------ 4. Loss ------------
+Q = torch.kron(torch.eye(args.n_agents), torch.eye(4)).to(device)   # TODO: move to args and print info
 loss_bound = 1
 sat_bound = torch.matmul(torch.matmul(x0.reshape(1, -1), Q), x0.reshape(-1, 1))
-sat_bound += 0 if alpha_ca is None else alpha_ca
-sat_bound += 0 if alpha_obst is None else alpha_obst
+sat_bound += 0 if args.alpha_col is None else args.alpha_col
+sat_bound += 0 if args.alpha_obst is None else args.alpha_obst
 sat_bound = sat_bound/20
 logger.info('Loss saturates at: '+str(sat_bound))
-bounded_loss_fn = LossRobots(
-    Q=Q, alpha_u=alpha_u, xbar=xbar,
-    loss_bound=loss_bound, sat_bound=sat_bound.to(device),
-    alpha_ca=alpha_ca, alpha_obst=alpha_obst,
-    min_dist=min_dist if col_av else None,
-    n_agents=sys.n_agents if col_av else None,
+bounded_loss_fn = RobotsLoss(
+    Q=Q, alpha_u=args.alpha_u, xbar=dataset.xbar,
+    loss_bound=loss_bound, sat_bound=None,
+    alpha_col=args.alpha_col, alpha_obst=args.alpha_obst,
+    min_dist=args.min_dist if args.col_av else None,
+    n_agents=sys.n_agents if args.col_av else None,
 )
-original_loss_fn = LossRobots(
-    Q=Q, alpha_u=alpha_u, xbar=xbar,
-    loss_bound=None, sat_bound=None,
-    alpha_ca=alpha_ca, alpha_obst=alpha_obst,
-    min_dist=min_dist if col_av else None,
-    n_agents=sys.n_agents if col_av else None,
+original_loss_fn = RobotsLoss(
+    Q=Q, alpha_u=args.alpha_u, xbar=dataset.xbar,
+    loss_bound=None, sat_bound=sat_bound.to(device),
+    alpha_col=args.alpha_col, alpha_obst=args.alpha_obst,
+    min_dist=args.min_dist if args.col_av else None,
+    n_agents=sys.n_agents if args.col_av else None,
 )
+
 
 # ------ 2.3. Gibbs temperature ------
 epsilon = 0.1       # PAC holds with Pr >= 1-epsilon
@@ -144,7 +136,7 @@ gibbs_posteior = GibbsPosterior(
 data_batch_size = None
 target = GibbsWrapperNF(
     target_dist=gibbs_posteior, train_data=train_data, data_batch_size=data_batch_size,
-    prop_scale=torch.tensor(6.0), prop_shift=torch.tensor(-3.0)
+    prop_scale=torch.tensor(6.0), prop_shift=torch.tensor(-3.0), #num_samples=num_samples_nf_train
 )
 
 
@@ -176,12 +168,12 @@ nfm.to(device)
 
 # ****** TRAIN NORMFLOWS ******
 # Train model
-max_iter = 100
-num_samples_nf_train = 2 * 20
+max_iter = 1000
+num_samples_nf_train = 40
 num_samples_nf_eval = 100
 anneal_iter = 10000
 annealing = True
-show_iter = 10
+show_iter = 20
 lr = 1e-2
 weight_decay = 1e-4
 msg = '\n[INFO] Training setup: annealing: ' + str(annealing)
@@ -191,6 +183,7 @@ logger.info(msg)
 
 nf_loss_hist = [None]*max_iter
 
+torch.autograd.set_detect_anomaly(True)
 optimizer = torch.optim.Adam(nfm.parameters(), lr=lr, weight_decay=weight_decay)
 with tqdm(range(max_iter)) as t:
     for it in t:
@@ -200,6 +193,11 @@ with tqdm(range(max_iter)) as t:
         else:
             nf_loss = nfm.reverse_kld(num_samples_nf_train)
         nf_loss.backward()
+        for name, param in nfm.named_parameters():
+            if not torch.isfinite(param.grad).all():
+                print('grad for ' + name + 'is infinite.')
+            if param.isnan().any():
+                print(param, ' is nan in iter ', it)
         optimizer.step()
 
         nf_loss_hist[it] = nf_loss.to('cpu').data.numpy()
@@ -207,9 +205,9 @@ with tqdm(range(max_iter)) as t:
         # Eval and log
         if (it + 1) % show_iter == 0 or it+1==max_iter:
             # sample some controllers and eval
-            z, _ = nfm.sample(num_samples_nf_eval)
-            print('z', z.shape)
-            lpl = target.target_dist._log_prob_likelihood(params=z, train_data=train_data)
+            with torch.no_grad():
+                z, _ = nfm.sample(num_samples_nf_eval)
+                lpl = target.target_dist._log_prob_likelihood(params=z, train_data=train_data)
 
             # log nf loss
             elapsed = t.format_dict['elapsed']

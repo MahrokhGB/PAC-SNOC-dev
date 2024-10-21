@@ -2,18 +2,18 @@ import torch
 from config import device
 from . import LQLossFH
 
-class LossRobots(LQLossFH):
+class RobotsLoss(LQLossFH):
     def __init__(
         self, xbar, loss_bound, sat_bound,
         n_agents, Q, alpha_u=1,
-        alpha_ca=None, alpha_obst=None, min_dist=0.5,
+        alpha_col=None, alpha_obst=None, min_dist=0.5,
         obstacle_centers=None, obstacle_covs=None
     ):
         super().__init__(Q=Q, R=alpha_u, loss_bound=loss_bound, sat_bound=sat_bound, xbar=xbar)
         self.n_agents = n_agents
-        self.alpha_ca, self.alpha_obst, self.min_dist = alpha_ca, alpha_obst, min_dist
-        assert (self.alpha_ca is None and self.min_dist is None) or not (self.alpha_ca is None or self.min_dist is None)
-        if not self.alpha_ca is None:
+        self.alpha_col, self.alpha_obst, self.min_dist = alpha_col, alpha_obst, min_dist
+        assert (self.alpha_col is None and self.min_dist is None) or not (self.alpha_col is None or self.min_dist is None)
+        if not self.alpha_col is None:
             assert not self.n_agents is None
         # define obstacles
         if obstacle_centers is None:
@@ -34,10 +34,14 @@ class LossRobots(LQLossFH):
 
     def forward(self, xs, us):
         '''
-        compute loss
+        Compute loss.
+
         Args:
             - xs: tensor of shape (S, T, num_states)
             - us: tensor of shape (S, T, num_inputs)
+
+        Return:
+            - loss of shape (1, 1).
         '''
         # batch
         x_batch = xs.reshape(*xs.shape, 1)
@@ -59,10 +63,10 @@ class LossRobots(LQLossFH):
         )   # shape = (S, T, 1, 1)
         loss_u = torch.sum(uTRu, 1) / x_batch.shape[1]    # average over the time horizon. shape = (S, 1, 1)
         # collision avoidance loss
-        if self.alpha_ca is None:
+        if self.alpha_col is None:
             loss_ca = 0
         else:
-            loss_ca = self.alpha_ca * self.f_loss_ca(x_batch)       # shape = (S, 1, 1)
+            loss_ca = self.alpha_col * self.f_loss_ca(x_batch)       # shape = (S, 1, 1)
         # obstacle avoidance loss
         if self.alpha_obst is None:
             loss_obst = 0
@@ -79,42 +83,22 @@ class LossRobots(LQLossFH):
         loss_val = torch.sum(loss_val, 0)/xs.shape[0]       # shape = (1, 1)
         return loss_val
 
-    def f_loss_ca(self, x_batch):
-        '''
-        collision avoidance loss
-        Args:
-            - x_batched: tensor of shape (S, T, num_states, 1)
-                concatenated states of all agents on the third dimension.
-        '''
-        min_sec_dist = self.min_dist + 0.2
-        num_states_per_agent = int(x_batch.shape[2]/self.n_agents)
-        # collision avoidance:
-        x_agents = x_batch[:, :, 0::num_states_per_agent, :]  # start from 0, pick every num_states_per_agent. shape = (S, T, n_agents, 1)
-        y_agents = x_batch[:, :, 1::num_states_per_agent, :]  # start from 1, pick every num_states_per_agent. shape = (S, T, n_agents, 1)
-        deltaqx = x_agents.repeat(1, 1, 1, self.n_agents) - x_agents.repeat(1, 1, 1, self.n_agents).transpose(-2, -1)   # shape = (S, T, n_agents, n_agents)
-        deltaqy = y_agents.repeat(1, 1, 1, self.n_agents) - y_agents.repeat(1, 1, 1, self.n_agents).transpose(-2, -1)   # shape = (S, T, n_agents, n_agents)
-        distance_sq = deltaqx ** 2 + deltaqy ** 2                       # shape = (S, T, n_agents, n_agents)
-        mask = torch.logical_not(torch.eye(self.n_agents).to(device))   # shape = (n_agents, n_agents)
-        # add distances
-        loss_ca = (1/(distance_sq + 1e-3) * (distance_sq.detach() < (min_sec_dist ** 2)) * mask).sum((-1, -2))/2        # shape = (S, T)
-        # average over time steps
-        loss_ca = loss_ca.sum(1)/loss_ca.shape[1]
-        # reshape to S,1,1
-        loss_ca = loss_ca.reshape(-1,1,1)
-        return loss_ca
-
     def f_loss_obst(self, x_batched):
         '''
-        obstacle avoidance loss
+        Obstacle avoidance loss.
+
         Args:
             - x_batched: tensor of shape (S, T, num_states, 1)
                 concatenated states of all agents on the third dimension.
+
+        Return:
+            - obstacle avoidance loss of shape (1, 1).
         '''
         qx = x_batched[:, :, 0::4, :]   # x of all agents. shape = (S, T, n_agents, 1)
         qy = x_batched[:, :, 1::4, :]   # y of all agents. shape = (S, T, n_agents, 1)
         # batched over all samples and all times of [x agent 1, y agent 1, ..., x agent n, y agent n]
         q = torch.cat((qx,qy), dim=-1).view(x_batched.shape[0], x_batched.shape[1], 1,-1).squeeze(dim=2)    # shape = (S, T, 2*n_agents)
-        # sum up loss due to each obstacle
+        # sum up loss due to each obstacle #TODO
         for ind, (center, cov) in enumerate(zip(self.obstacle_centers, self.obstacle_covs)):
             if ind == 0:
                 loss_obst = normpdf(q, mu=center, cov=cov)  # shape = (S, T)
@@ -124,10 +108,80 @@ class LossRobots(LQLossFH):
         loss_obst = loss_obst.sum(1) / loss_obst.shape[1]   # shape = (S)
         return loss_obst.reshape(-1, 1, 1)
 
-def normpdf(q, mu, cov):
+    def f_loss_ca(self, x_batch):
+        '''
+        Collision avoidance loss.
+
+        Args:
+            - x_batched: tensor of shape (S, T, num_states, 1)
+                concatenated states of all agents on the third dimension.
+
+
+        Return:
+            - collision avoidance loss of shape (1, 1).
+        '''
+        min_sec_dist = self.min_dist + 0.2
+        # compute pairwise distances
+        distance_sq = self.get_pairwise_distance_sq(x_batch)              # shape = (S, T, n_agents, n_agents)
+        # compute and sum up loss when two agents are too close
+        mask = torch.logical_not(torch.eye(self.n_agents).to(device))   # shape = (n_agents, n_agents)
+        loss_ca = (1/(distance_sq + 1e-3) * (distance_sq.detach() < (min_sec_dist ** 2)) * mask).sum((-1, -2))/2        # shape = (S, T)
+        # average over time steps
+        loss_ca = loss_ca.sum(1)/loss_ca.shape[1]
+        # reshape to S,1,1
+        loss_ca = loss_ca.reshape(-1,1,1)
+        return loss_ca
+
+
+    def count_collisions(self, x_batch):
+        '''
+        Count the number of collisions between agents.
+
+        Args:
+            - x_batched: tensor of shape (S, T, num_states, 1)
+                concatenated states of all agents on the third dimension.
+
+        Return:
+            - number of collisions between agents.
+        '''
+        if len (x_batch.shape)==3:
+            x_batch = x_batch.reshape(*x_batch.shape, 1)
+        distance_sq = self.get_pairwise_distance_sq(x_batch)  # shape = (S, T, n_agents, n_agents)
+        col_matrix = (0.0001 < distance_sq) * (distance_sq < self.min_dist ** 2) # Boolean collision matrix of shape (S, T, n_agents, n_agents)
+        n_coll = col_matrix.sum().item()    # all collisions at all times and across all rollouts
+        return n_coll/2                     # each collision is counted twice
+
+    def get_pairwise_distance_sq(self, x_batch):
+        '''
+        Squared distance between pairwise agents.
+
+        Args:
+            - x_batched: tensor of shape (S, T, num_states, 1)
+                concatenated states of all agents on the third dimension.
+
+        Return:
+            - matrix of shape (S, T, n_agents, n_agents) of squared pairwise distances.
+        '''
+        num_states_per_agent = int(x_batch.shape[2]/self.n_agents)
+        # collision avoidance:
+        x_agents = x_batch[:, :, 0::num_states_per_agent, :]  # start from 0, pick every num_states_per_agent. shape = (S, T, n_agents, 1)
+        y_agents = x_batch[:, :, 1::num_states_per_agent, :]  # start from 1, pick every num_states_per_agent. shape = (S, T, n_agents, 1)
+        deltaqx = x_agents.repeat(1, 1, 1, self.n_agents) - x_agents.repeat(1, 1, 1, self.n_agents).transpose(-2, -1)   # shape = (S, T, n_agents, n_agents)
+        deltaqy = y_agents.repeat(1, 1, 1, self.n_agents) - y_agents.repeat(1, 1, 1, self.n_agents).transpose(-2, -1)   # shape = (S, T, n_agents, n_agents)
+        distance_sq = deltaqx ** 2 + deltaqy ** 2             # shape = (S, T, n_agents, n_agents)
+        return distance_sq
+
+def normpdf(q, mu, cov): #TODO
     '''
+    PDF of normal distribution with mean "mu" and covariance "cov".
+
     Args:
         - q: shape(S, T, num_states_per_agent)
+        - mu:
+        - cov:
+
+    Return:
+            -
     '''
     d = 2
     mu = mu.view(1, d)
@@ -144,9 +198,3 @@ def normpdf(q, mu, cov):
         else:
             out += nom/den
     return out
-
-def f_loss_side(x):
-    qx = x[::4]
-    qy = x[1::4]
-    side = torch.relu(qx - 3) + torch.relu(-3 - qx) + torch.relu(qy - 6) + torch.relu(-6 - qy)
-    return side.sum()

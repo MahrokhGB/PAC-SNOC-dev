@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import torch, copy
 import torch.nn as nn
+import numpy as np
 import torch.nn.functional as F
 from collections import OrderedDict
 
@@ -62,15 +63,9 @@ class PsiU(nn.Module):
         # # # # # # # # # Non-trainable parameters # # # # # # # # #
         # Auxiliary elements
         self.epsilon = 0.001
-        self.F = torch.zeros(n_xi, n_xi).to(device)
-        self.B1 = torch.zeros(n_xi, l).to(device)
-        self.E = torch.zeros(n_xi, n_xi).to(device)
-        self.Lambda = torch.ones(l).to(device)
-        self.C1 = torch.zeros(l, n_xi).to(device)
-        self.D11 = torch.zeros(l, l).to(device)
-        self.set_model_param()
+        self.update_model_param()
 
-    def set_model_param(self):
+    def update_model_param(self):
         # convert vectorized training params to matrices
         for name in self.training_param_names:
             shape = getattr(self, name+'_shape')
@@ -83,11 +78,24 @@ class PsiU(nn.Module):
         H21, H22, _ = torch.split(h2, [self.n_xi, self.l, self.n_xi], dim=1)
         H31, H32, H33 = torch.split(h3, [self.n_xi, self.l, self.n_xi], dim=1)
         P = H33
-        # NN state dynamics:
+        if self.X.isnan().any():
+            print('X is nan')
+        if self.Y.isnan().any():
+            print('Y is nan')
+        if H.isnan().any():
+            print('H is nan')
+            print(H11.isnan().any(), H33.isnan().any())
+        # NN state dynamics
         self.F = H31
         self.B1 = H32
-        # NN output:
+        # NN output
         self.E = 0.5 * (H11 + P + self.Y - self.Y.T)
+        if abs(torch.linalg.det(self.E)) <=1e-6:
+            print('[ERR] E is close to singularity')
+            print('H11', H11)
+            print('P', P)
+            print('self.Y - self.Y.T', self.Y - self.Y.T)
+            raise NotImplementedError
         # v signal:  [Change the following 2 lines if we don't want a strictly acyclic REN!]
         self.Lambda = 0.5 * torch.diag(H22)
         self.D11 = -torch.tril(H22, diagonal=-1)
@@ -116,7 +124,15 @@ class PsiU(nn.Module):
         assert epsilon.shape==(batch_size, 1, self.l)
         E_xi_ = F.linear(xi, self.F) + F.linear(epsilon, self.B1) + F.linear(w, self.B2)  # + self.bxi
         assert E_xi_.shape==(batch_size, 1, self.n_xi)
-        xi_ = F.linear(E_xi_, self.E.inverse())
+        try:
+            E_inv = self.E.inverse()
+        except:
+            print('inversion failed')
+            print('det', torch.linalg.det(self.E))
+            print('self.Y - self.Y.T', self.Y - self.Y.T)
+            print('E', self.E)
+            print(self.E.isnan().any())
+        xi_ = F.linear(E_xi_, E_inv)
         assert xi_.shape==(batch_size, 1, self.n_xi)
         u = F.linear(xi, self.C2) + F.linear(epsilon, self.D21) + F.linear(w, self.D22)  # + self.bu
         assert u.shape==(batch_size, 1, self.num_inputs)
@@ -220,15 +236,14 @@ class RENController(nn.Module):
             raise NotImplementedError
         # if value.is_leaf:
         #     value.requires_grad=current_val.requires_grad
-
         setattr(self.psi_u, name, value)
-        self.psi_u.set_model_param()    # update dependent params
+        self.psi_u.update_model_param()    # update dependent params
 
     def set_parameters(self, param_dict):
         for name, value in param_dict.items():
             self.set_parameter(name, value)
 
-    def parameters_as_vector(self):
+    def get_parameters_as_vector(self):
         return torch.cat(self.parameters(), dim=-1)
 
     def set_parameters_as_vector(self, value):
@@ -256,3 +271,9 @@ class RENController(nn.Module):
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
+
+
+
+from torch.func import functional_call
+def fmodel(base_model, params, buffers, x):
+    return functional_call(base_model, (params, buffers), (x,))

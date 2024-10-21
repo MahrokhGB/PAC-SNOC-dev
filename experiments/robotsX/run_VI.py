@@ -5,7 +5,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 sys.path.insert(1, BASE_DIR)
 
 from assistive_functions import WrapLogger
-from loss_functions.robots_loss import LossRobots
+from loss_functions.robots_loss import RobotsLoss
 from controllers.VI_controller import VICont
 from experiments.robotsX.detect_collision import *
 
@@ -86,26 +86,26 @@ sys = SystemRobots(xbar, x_init=x_init, u_init=u_init, k=k, is_linear=is_linear)
 # ------ 2.2. define the loss ------
 Q = torch.kron(torch.eye(n_agents), torch.eye(4)).to(device)
 alpha_u = 0.1/400 if col_av else 1/400
-alpha_ca = 100 if col_av else None
+alpha_col = 100 if col_av else None
 alpha_obst = 5e3 if obstacle else None
 min_dist = 1.
 loss_bound = 1
 sat_bound = torch.matmul(torch.matmul(x0.reshape(1, -1), Q), x0.reshape(-1, 1))
-sat_bound += 0 if alpha_ca is None else alpha_ca
+sat_bound += 0 if alpha_col is None else alpha_col
 sat_bound += 0 if alpha_obst is None else alpha_obst
 sat_bound = sat_bound/20
 logger.info('Loss saturates at: '+str(sat_bound))
-bounded_loss_fn = LossRobots(
+bounded_loss_fn = RobotsLoss(
     Q=Q, alpha_u=alpha_u, xbar=xbar,
     loss_bound=loss_bound, sat_bound=sat_bound.to(device),
-    alpha_ca=alpha_ca, alpha_obst=alpha_obst,
+    alpha_col=alpha_col, alpha_obst=alpha_obst,
     min_dist=min_dist if col_av else None,
     n_agents=sys.n_agents if col_av else None,
 )
-original_loss_fn = LossRobots(
+original_loss_fn = RobotsLoss(
     Q=Q, alpha_u=alpha_u, xbar=xbar,
     loss_bound=None, sat_bound=None,
-    alpha_ca=alpha_ca, alpha_obst=alpha_obst,
+    alpha_col=alpha_col, alpha_obst=alpha_obst,
     min_dist=min_dist if col_av else None,
     n_agents=sys.n_agents if col_av else None,
 )
@@ -167,7 +167,7 @@ msg += '\n[INFO] Dataset: n_agents: %i' % n_agents + ' -- num_rollouts: %i' % nu
 msg += ' -- std_ini: %.2f' % std_ini + ' -- spring k: %.2f' % k
 msg += '\n[INFO] Initial condition: x_0: ' + str(x0) + ' -- xbar: ' + str(xbar)
 msg += '\n[INFO] Loss: t_end: %i'% t_end + ' -- alpha_u: %.6f' % alpha_u
-msg += ' -- alpha_ca: %.f' % alpha_ca if col_av else ''
+msg += ' -- alpha_col: %.f' % alpha_col if col_av else ''
 msg += ' -- alpha_obst: %.1f' % alpha_obst if obstacle else ''
 msg += '\n[INFO] REN: n_xi: %i' % n_xi + ' -- l: %i' % l
 msg += '\n[INFO] Solver: lr: %.4f' % lr + ' -- epochs: %i' % epochs
@@ -199,7 +199,7 @@ else:
 
     res_dict['num_rollouts'] = num_rollouts
     res_dict['Q'], res_dict['alpha_u'] = Q, alpha_u
-    res_dict['alpha_ca'], res_dict['alpha_obst'] = alpha_ca, alpha_obst
+    res_dict['alpha_col'], res_dict['alpha_obst'] = alpha_col, alpha_obst
     res_dict['n_xi'], res_dict['l'] = n_xi, l
     if fname is not None:
         filename = fname+'_factor'+str(vf_num)+'.pt'

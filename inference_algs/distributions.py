@@ -1,6 +1,6 @@
-import numpy as np
-import torch, sys, os
+import torch, sys, os, copy
 from collections import OrderedDict
+from torch.func import stack_module_state, functional_call
 from pyro.distributions import Normal, Uniform
 from torch.distributions import Distribution
 
@@ -19,15 +19,24 @@ class GibbsPosterior():
         # attributes of the CL system
         controller, sys,
         # misc
-        logger=None,
+        logger=None, num_ensemble_models=1
     ):
         # set attributes
         self.lambda_ = to_tensor(lambda_)
         self.loss_fn = loss_fn
         self.logger = WrapLogger(logger)
+        self.num_ensemble_models = num_ensemble_models
 
         # Controller params will be set during training and the resulting CL system is use for evaluation.
         self.generic_cl_system = CLSystem(sys, controller, random_seed=None)
+
+        # init ensemble models
+        self.ensemble_models = [copy.deepcopy(self.generic_cl_system)]*self.num_ensemble_models
+        self.ensemble_params, self.ensemble_buffers = stack_module_state(self.ensemble_models)
+        # Construct a "stateless" version of one of the models. It is "stateless" in
+        # the sense that the parameters are meta Tensors and do not have storage.
+        self.ensemble_base_model = copy.deepcopy(self.ensemble_models[0])
+        self.ensemble_base_model = self.ensemble_base_model.to('meta')
 
         self._params = OrderedDict()
         self._param_dists = OrderedDict()
@@ -83,9 +92,9 @@ class GibbsPosterior():
         self.prior = CatDist(self._param_dists.values())
 
     def _log_prob_likelihood(self, params, train_data):
-        assert len(params.shape)<3
-        if len(params.shape)==1:
-            params = params.reshape(1, -1)
+        # assert len(params.shape)<3
+        # if len(params.shape)==1:
+        #     params = params.reshape(1, -1)
         L = params.shape[0]
 
         for l_tmp in range(L):
@@ -193,7 +202,6 @@ class GibbsWrapperNF(Target):
         self.max_log_prob = 0.0
         if not self.data_batch_size is None:
             raise NotImplementedError   # TODO: random seed must be fixed across REN controller, ...
-        # self.train_dataloader = DataLoader(train_data, batch_size=data_batch_size, shuffle=True)
 
     def log_prob(self, z):
         """
